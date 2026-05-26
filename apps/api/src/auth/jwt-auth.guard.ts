@@ -31,10 +31,16 @@ export class JwtAuthGuard implements CanActivate {
 
     const req = ctx.switchToHttp().getRequest<Request>();
     const header = req.headers.authorization;
-    if (!header?.startsWith("Bearer ")) {
+    let token: string | undefined;
+    if (header?.startsWith("Bearer ")) {
+      token = header.slice(7).trim();
+    } else if (req.cookies?.["cmr_at"]) {
+      // Sprint 1: cookie-based session (HttpOnly + SameSite=Strict)
+      token = req.cookies["cmr_at"] as string;
+    }
+    if (!token) {
       throw new UnauthorizedException("Missing Bearer token");
     }
-    const token = header.slice(7).trim();
     const payload = await this.auth.verify(token);
     req.user = payload;
     return true;

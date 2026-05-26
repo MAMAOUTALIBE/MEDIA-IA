@@ -5,6 +5,8 @@ import { AuthController } from "./auth.controller";
 import { AuthService } from "./auth.service";
 import { JwtAuthGuard } from "./jwt-auth.guard";
 import { RolesGuard } from "./roles.guard";
+import { MfaService } from "./mfa.service";
+import { SessionsService } from "./sessions.service";
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRES_IN_SECONDS = Number(process.env.JWT_EXPIRES_IN_SECONDS ?? 60 * 60 * 8);
@@ -26,9 +28,11 @@ if (process.env.NODE_ENV === "production" && (!JWT_SECRET || JWT_SECRET.length <
   controllers: [AuthController],
   providers: [
     AuthService,
+    MfaService,
+    SessionsService,
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
   ],
-  exports: [AuthService],
+  exports: [AuthService, MfaService, SessionsService],
 })
 export class AuthModule {}

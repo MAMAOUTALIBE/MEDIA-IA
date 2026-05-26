@@ -48,6 +48,11 @@ model User {
   passwordHash    String?
   emailVerifiedAt DateTime?
   lastActiveAt    DateTime?
+  // MFA TOTP (Sprint 1) — secret stored as base32 string, mfaEnabled true after first verify
+  mfaSecret       String?
+  mfaEnabled      Boolean          @default(false)
+  mfaBackupCodes  String[]         @default([]) // Argon2id hashes of one-time backup codes
+  mfaEnabledAt    DateTime?
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
   deletedAt       DateTime?
@@ -66,17 +71,21 @@ model User {
 }
 
 model Session {
-  id           String   @id @default(cuid())
-  userId       String
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  token        String   @unique
-  ip           String?
-  userAgent    String?
-  expiresAt    DateTime
-  createdAt    DateTime @default(now())
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Sprint 1: opaque refresh-token (SHA-256 hashed before storage to avoid token leak)
+  refreshTokenHash String  @unique
+  ip              String?
+  userAgent       String?
+  expiresAt       DateTime
+  revokedAt       DateTime?
+  lastUsedAt      DateTime?
+  createdAt       DateTime @default(now())
 
   @@index([userId])
   @@index([expiresAt])
+  @@index([revokedAt])
 }
 
 // ============================================================

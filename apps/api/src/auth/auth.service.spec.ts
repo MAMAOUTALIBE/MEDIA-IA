@@ -3,6 +3,8 @@ import { JwtService } from "@nestjs/jwt";
 import { hash as argon2Hash } from "@node-rs/argon2";
 import { AuthService } from "./auth.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { MfaService } from "./mfa.service";
+import { SessionsService } from "./sessions.service";
 
 /**
  * Tests d'intégration avec une vraie connexion Prisma sur la base cmr_test.
@@ -26,7 +28,9 @@ describe("AuthService (integration)", () => {
     });
     prisma = new PrismaService({ datasources: { db: { url: TEST_DB_URL } } } as never);
     await prisma.$connect();
-    svc = new AuthService(jwt, prisma);
+    const mfa = new MfaService(prisma);
+    const sessions = new SessionsService(prisma);
+    svc = new AuthService(jwt, prisma, mfa, sessions);
 
     // Apply migrations against test DB by reusing the dev schema's structure.
     // We seed three accounts directly with raw upserts so the test is fast.
@@ -57,6 +61,7 @@ describe("AuthService (integration)", () => {
   describe("login()", () => {
     it("réussit avec credentials valides", async () => {
       const r = await svc.login("test.admin@cmr.tv", TEST_PWD);
+      if ("mfaRequired" in r) throw new Error("unexpected mfa branch");
       expect(r.token).toBeTruthy();
       expect(r.user.email).toBe("test.admin@cmr.tv");
       expect(r.user.role).toBe("admin");
@@ -64,6 +69,7 @@ describe("AuthService (integration)", () => {
 
     it("réussit avec email en majuscules (normalisation)", async () => {
       const r = await svc.login("TEST.ADMIN@cmr.tv", TEST_PWD);
+      if ("mfaRequired" in r) throw new Error("unexpected mfa branch");
       expect(r.user.id).toBe("test-admin");
     });
 
@@ -88,8 +94,9 @@ describe("AuthService (integration)", () => {
 
   describe("verify()", () => {
     it("décode un JWT valide émis par login", async () => {
-      const { token } = await svc.login("test.admin@cmr.tv", TEST_PWD);
-      const payload = await svc.verify(token);
+      const r = await svc.login("test.admin@cmr.tv", TEST_PWD);
+      if ("mfaRequired" in r) throw new Error("unexpected mfa branch");
+      const payload = await svc.verify(r.token);
       expect(payload.sub).toBe("test-admin");
       expect(payload.role).toBe("admin");
       expect(payload.email).toBe("test.admin@cmr.tv");

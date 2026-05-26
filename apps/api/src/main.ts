@@ -4,6 +4,7 @@ import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import type { NestExpressApplication } from "@nestjs/platform-express";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
+import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import { Logger } from "nestjs-pino";
 import { AppModule } from "./app.module";
@@ -26,6 +27,9 @@ async function bootstrap() {
 
   // Behind reverse proxy in prod
   app.set("trust proxy", 1);
+
+  // Sprint 1: cookie-parser for refresh + access cookies (HttpOnly)
+  app.use(cookieParser());
 
   app.enableCors({
     origin: (process.env.CORS_ORIGIN ?? "http://localhost:3000").split(","),
