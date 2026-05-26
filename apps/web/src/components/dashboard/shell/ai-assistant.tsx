@@ -12,6 +12,7 @@ import {
 import { Bot, Send, Sparkles, X, ArrowRight } from "lucide-react";
 import { ask, summary, SUGGESTED_PROMPTS, SLASH_COMMANDS, type AIAnswer } from "@/lib/ai-engine";
 import { navItems } from "@/components/dashboard/shell/nav-items";
+import { API_URL } from "@/lib/api-client";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -128,6 +129,68 @@ export function AIAssistant() {
     }
   }
 
+  async function streamFromApi(question: string): Promise<boolean> {
+    if (!API_URL) return false;
+    try {
+      const res = await fetch(`${API_URL.replace(/\/$/, "")}/ai/ask/stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+        body: JSON.stringify({ question }),
+      });
+      if (!res.ok || !res.body) return false;
+
+      // Push an empty assistant message we'll fill progressively
+      const streamingId = `a-stream-${Date.now()}`;
+      setMessages((prev) => [
+        ...prev,
+        { id: streamingId, role: "assistant", answer: { reply: "" }, ts: Date.now() },
+      ]);
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let aggregate = "";
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const events = buffer.split("\n\n");
+        buffer = events.pop() ?? "";
+        for (const evt of events) {
+          // Parse "event: chunk\ndata: {...}"
+          const eventLine = evt.split("\n").find((l) => l.startsWith("event:"));
+          const dataLine = evt.split("\n").find((l) => l.startsWith("data:"));
+          if (!eventLine || !dataLine) continue;
+          const type = eventLine.slice(6).trim();
+          if (type === "chunk") {
+            try {
+              const payload = JSON.parse(dataLine.slice(5).trim());
+              aggregate += payload.text ?? "";
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === streamingId
+                    ? { ...m, answer: { reply: aggregate } }
+                    : m,
+                ),
+              );
+            } catch {
+              /* skip malformed chunk */
+            }
+          } else if (type === "done") {
+            return true;
+          } else if (type === "error") {
+            return false;
+          }
+        }
+      }
+      return true;
+    } catch (err) {
+      console.warn("[ai] stream failed, falling back to local", err);
+      return false;
+    }
+  }
+
   function send(text: string) {
     const q = text.trim();
     if (!q) return;
@@ -136,18 +199,23 @@ export function AIAssistant() {
     setMessages((prev) => [...prev, userMsg]);
 
     if (q.startsWith("/")) {
-      // Slash commands answer instantly
       setTimeout(() => handleSlash(q), 120);
       return;
     }
 
     setTyping(true);
-    const delay = 450 + Math.min(800, q.length * 12);
-    setTimeout(() => {
-      const answer = ask(q);
-      pushAssistant(answer);
+
+    // Try API streaming first; fall back to local heuristic if unavailable
+    (async () => {
+      const streamed = await streamFromApi(q);
+      if (!streamed) {
+        // Local fallback with simulated thinking delay
+        const delay = 450 + Math.min(800, q.length * 12);
+        await new Promise((r) => setTimeout(r, delay));
+        pushAssistant(ask(q));
+      }
       setTyping(false);
-    }, delay);
+    })();
   }
 
   function pickSlash(cmd: string) {

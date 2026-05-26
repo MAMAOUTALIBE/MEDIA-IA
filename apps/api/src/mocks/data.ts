@@ -45,6 +45,10 @@ export const users: User[] = [
   { id: "u12", name: "Tidiane Ba", email: "t.ba@cmr.tv", role: "community_manager", team: "Réseaux", active: true, lastActive: "2026-05-26T10:20:00", initials: "TB", color: "#f59e0b" },
 ];
 
+export const usersById: Record<string, User> = Object.fromEntries(
+  users.map((u) => [u.id, u]),
+);
+
 // ----------------------------- KPIs -----------------------------
 
 export interface KpiMetric {

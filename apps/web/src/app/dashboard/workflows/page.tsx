@@ -1,21 +1,46 @@
 "use client";
 
 import { GlassCard, GlassCardHeader } from "@/components/ui/glass-card";
-import { useWorkflows } from "@/lib/queries";
+import { useWorkflows, useAdvanceWorkflow } from "@/lib/queries";
+import { API_ENABLED } from "@/lib/api-client";
 import { InitialsAvatar } from "@/components/ui/initials-avatar";
 import { ChannelIcon } from "@/components/ui/channel-icon";
 import { WORKFLOW_STEPS } from "@/lib/constants";
-import { ArrowRight, GitMerge } from "lucide-react";
+import { ArrowRight, GitMerge, ChevronRight, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { EmptyState } from "@/components/ui/empty-state";
 import { CardListSkeleton } from "@/components/ui/loading-skeletons";
+import { toast } from "sonner";
 
 const stepColors = ["#22d3ee", "#60a5fa", "#a78bfa", "#f472b6", "#10b981"];
 
 export default function WorkflowsPage() {
   const { data, isLoading } = useWorkflows();
+  const advance = useAdvanceWorkflow();
   const instances = data?.instances ?? [];
   const counts = data?.counts ?? { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+
+  function handleAdvance(wfId: string, title: string) {
+    if (!API_ENABLED) {
+      toast.error("API désactivée — impossible de faire avancer en mode mock pur");
+      return;
+    }
+    advance.mutate(
+      { id: wfId, comment: "Advance via UI" },
+      {
+        onSuccess: (r: { previousStep?: number; workflow?: { currentStep?: number } }) => {
+          toast.success(`« ${title} » avance étape ${r?.previousStep} → ${r?.workflow?.currentStep}`, {
+            description: "Broadcast WebSocket envoyé",
+          });
+        },
+        onError: (err) => {
+          toast.error("Échec advance", {
+            description: err instanceof Error ? err.message.slice(0, 100) : "?",
+          });
+        },
+      },
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -99,10 +124,26 @@ export default function WorkflowsPage() {
                   />
                 ))}
               </div>
-              <div className="flex items-center gap-1.5">
-                {wf.channels.map((ch) => (
-                  <ChannelIcon key={ch} channel={ch} size={14} />
-                ))}
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5">
+                  {wf.channels.map((ch) => (
+                    <ChannelIcon key={ch} channel={ch} size={14} />
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleAdvance(wf.id, wf.contentTitle)}
+                  disabled={advance.isPending || wf.currentStep >= 5}
+                  className="inline-flex items-center gap-1 rounded-lg border border-accent-violet/30 bg-accent-violet/10 px-2.5 py-1 text-[11px] font-semibold text-accent-violet transition hover:bg-accent-violet/20 disabled:opacity-40"
+                  title="Faire avancer cette instance"
+                >
+                  {advance.isPending && advance.variables?.id === wf.id ? (
+                    <Loader2 size={11} className="animate-spin" />
+                  ) : (
+                    <ChevronRight size={11} />
+                  )}
+                  Avancer
+                </button>
               </div>
             </li>
           ))}

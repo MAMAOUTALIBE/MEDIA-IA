@@ -1,8 +1,18 @@
-import { Controller, Get } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  NotFoundException,
+  Param,
+  Post,
+} from "@nestjs/common";
 import { workflowInstances } from "../mocks/data";
+import { NotificationsGateway } from "../notifications/notifications.gateway";
 
 @Controller("workflows")
 export class WorkflowsController {
+  constructor(private readonly notifications: NotificationsGateway) {}
+
   @Get()
   list() {
     return {
@@ -16,5 +26,27 @@ export class WorkflowsController {
         5: workflowInstances.filter((w) => w.currentStep === 5).length,
       },
     };
+  }
+
+  @Post(":id/advance")
+  advance(@Param("id") id: string, @Body() body: { comment?: string } = {}) {
+    const wf = workflowInstances.find((w) => w.id === id);
+    if (!wf) throw new NotFoundException(`Workflow ${id} introuvable`);
+    if (wf.currentStep === 5) {
+      return { ok: false, reason: "already_published", workflow: wf };
+    }
+    const previous = wf.currentStep;
+    wf.currentStep = (wf.currentStep + 1) as 1 | 2 | 3 | 4 | 5;
+
+    this.notifications.broadcast("workflow.advanced", {
+      id: wf.id,
+      contentTitle: wf.contentTitle,
+      previousStep: previous,
+      newStep: wf.currentStep,
+      comment: body.comment ?? null,
+      at: new Date().toISOString(),
+    });
+
+    return { ok: true, workflow: wf, previousStep: previous };
   }
 }

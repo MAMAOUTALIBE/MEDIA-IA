@@ -265,3 +265,21 @@ export function useRejectContent() {
     },
   });
 }
+
+export function useAdvanceWorkflow() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, comment }: { id: string; comment?: string }) => {
+      const r = await postApi<{
+        ok: boolean;
+        workflow: WorkflowInstance;
+        previousStep: number;
+      }>(`workflows/${id}/advance`, { comment });
+      return r;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workflows", "api"] });
+      queryClient.invalidateQueries({ queryKey: ["workflows", "mock"] });
+    },
+  });
+}
