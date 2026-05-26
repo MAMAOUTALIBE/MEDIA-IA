@@ -2,6 +2,11 @@ import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { LoggerModule } from "nestjs-pino";
 import { HealthModule } from "./health/health.module";
+import { ContentsModule } from "./contents/contents.module";
+import { KpisModule } from "./kpis/kpis.module";
+import { AuditModule } from "./audit/audit.module";
+import { NotificationsModule } from "./notifications/notifications.module";
+import { WorkflowsModule } from "./workflows/workflows.module";
 
 @Module({
   imports: [
@@ -33,6 +38,11 @@ import { HealthModule } from "./health/health.module";
       },
     }),
     HealthModule,
+    ContentsModule,
+    KpisModule,
+    AuditModule,
+    NotificationsModule,
+    WorkflowsModule,
   ],
 })
 export class AppModule {}
