@@ -20,7 +20,7 @@
     "git:init": "node scripts/git-init.mjs"
   },
   "devDependencies": {
-    "isomorphic-git": "^1.38.1",
+    "isomorphic-git": "^1.38.3",
     "playwright": "^1.60.0",
     "turbo": "^2.5.10"
   },
