@@ -3,17 +3,31 @@ packages:
   - packages/*
 
 allowBuilds:
-  '@nestjs/core': set this to true or false
-  '@prisma/client': set this to true or false
-  '@prisma/engines': set this to true or false
-  '@scarf/scarf': set this to true or false
-  esbuild: set this to true or false
-  msw: set this to true or false
-  prisma: set this to true or false
-  sharp: set this to true or false
-  unrs-resolver: set this to true or false
+  '@nestjs/core': true
+  '@prisma/client': true
+  '@prisma/engines': true
+  '@scarf/scarf': true
+  '@tailwindcss/oxide': true
+  '@node-rs/argon2': true
+  esbuild: true
+  msw: true
+  prisma: true
+  sharp: true
+  unrs-resolver: true
+  '@sentry-internal/node-cpu-profiler': true
+  '@sentry/cli': true
 
 onlyBuiltDependencies:
+  - "@nestjs/core"
+  - "@prisma/client"
+  - "@prisma/engines"
+  - "@scarf/scarf"
+  - "@tailwindcss/oxide"
+  - "@node-rs/argon2"
+  - esbuild
+  - msw
+  - prisma
   - sharp
   - unrs-resolver
-  - "@tailwindcss/oxide"
+  - "@sentry-internal/node-cpu-profiler"
+  - "@sentry/cli"

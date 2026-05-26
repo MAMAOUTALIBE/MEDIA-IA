@@ -62,3 +62,7 @@ storybook-static
 # project-local artifacts
 /tmp
 verify*.mjs
+apps/web/test-results/
+playwright-report/
+**/.env
+**/.env.local

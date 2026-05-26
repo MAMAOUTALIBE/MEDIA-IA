@@ -1,33 +1,44 @@
 import { Injectable, UnauthorizedException } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
-import { users } from "../mocks/data";
-
-/**
- * Auth simplifié pour la démo :
- *   - mots de passe en clair (un seul mot de passe partagé `cmr2025`)
- *   - JWT signé avec un secret env, expire en 8h
- * À remplacer Phase 1 par bcrypt + table User en DB.
- */
-const SHARED_PASSWORD = "cmr2025";
+import { verify as argon2Verify } from "@node-rs/argon2";
+import { PrismaService } from "../prisma/prisma.service";
 
 export interface JwtPayload {
-  sub: string;   // user id
+  sub: string; // user id
   email: string;
   role: string;
   name: string;
 }
 
+/**
+ * Auth Sprint 0 baseline (ADR-006) :
+ *   - mots de passe hashés Argon2id (côté seed, paramètres OWASP)
+ *   - vérification par @node-rs/argon2 (pur Rust, pas de native deps fragiles)
+ *   - JWT HS512 signé avec JWT_SECRET (≥64 chars), exp 8h
+ *   - aucune fallback en clair
+ */
 @Injectable()
 export class AuthService {
-  constructor(private readonly jwt: JwtService) {}
+  constructor(
+    private readonly jwt: JwtService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   async login(email: string, password: string) {
-    if (password !== SHARED_PASSWORD) {
-      throw new UnauthorizedException("Mot de passe invalide");
+    const normalizedEmail = email.trim().toLowerCase();
+    const user = await this.prisma.user.findFirst({
+      where: { email: { equals: normalizedEmail, mode: "insensitive" }, deletedAt: null },
+    });
+    if (!user || !user.passwordHash) {
+      throw new UnauthorizedException("Identifiants invalides");
     }
-    const user = users.find((u) => u.email.toLowerCase() === email.toLowerCase());
-    if (!user) throw new UnauthorizedException("Compte introuvable");
-    if (!user.active) throw new UnauthorizedException("Compte désactivé");
+    if (!user.active) {
+      throw new UnauthorizedException("Compte désactivé");
+    }
+    const ok = await argon2Verify(user.passwordHash, password).catch(() => false);
+    if (!ok) {
+      throw new UnauthorizedException("Identifiants invalides");
+    }
 
     const payload: JwtPayload = {
       sub: user.id,
@@ -58,9 +69,11 @@ export class AuthService {
     }
   }
 
-  meFromPayload(payload: JwtPayload) {
-    const user = users.find((u) => u.id === payload.sub);
-    if (!user) throw new UnauthorizedException("Compte supprimé");
+  async meFromPayload(payload: JwtPayload) {
+    const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
+    if (!user || user.deletedAt) {
+      throw new UnauthorizedException("Compte supprimé");
+    }
     return user;
   }
 }

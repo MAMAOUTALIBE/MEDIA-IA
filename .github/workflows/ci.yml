@@ -10,11 +10,33 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  PNPM_VERSION: "11.3.0"
+  NODE_VERSION: "22"
+
 jobs:
   quality:
-    name: Quality (lint + typecheck + build)
+    name: Quality (lint + typecheck + test + build)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: cmr
+          POSTGRES_PASSWORD: ci_password
+          POSTGRES_DB: cmr_test
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U cmr -d cmr_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://cmr:ci_password@localhost:5432/cmr_test?schema=public
+      TEST_DATABASE_URL: postgresql://cmr:ci_password@localhost:5432/cmr_test?schema=public
+      JWT_SECRET: ci-jwt-secret-must-be-at-least-64-chars-long-aaaaaaaaaaaaaaaaaaaaaaaaaa
     steps:
       - uses: actions/checkout@v4
         with:
@@ -23,16 +45,19 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: ${{ env.PNPM_VERSION }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Prisma migrate (test DB)
+        run: cd packages/db && pnpm prisma migrate deploy
 
       - name: Lint
         run: pnpm lint
@@ -47,57 +72,78 @@ jobs:
         run: pnpm build
 
   audit:
-    name: Security audit
+    name: Security audit (pnpm)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v4
         with:
-          version: 9
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Audit dependencies (high+ severities only)
+      - run: pnpm install --frozen-lockfile
+      - name: Audit (high+ severities)
         run: pnpm audit --prod --audit-level=high
+
+  trivy:
+    name: Trivy filesystem + secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trivy filesystem scan
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+          ignore-unfixed: true
+          format: table
+      - name: Trivy secret scan
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: secret
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+
+  codeql:
+    name: CodeQL (SAST)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      security-events: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+      - uses: github/codeql-action/analyze@v3
 
   lighthouse:
     name: Lighthouse CI (a11y + perf)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     if: github.event_name == 'pull_request'
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v4
         with:
-          version: 9
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build web
-        run: pnpm --filter web build
-
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @cmr/web build
       - name: Run Lighthouse CI
-        run: pnpm dlx @lhci/cli@0.14.x autorun
+        run: pnpm dlx @lhci/cli@0.15.x autorun
         env:
           LHCI_GITHUB_APP_TOKEN: ${{ secrets.LHCI_GITHUB_APP_TOKEN }}

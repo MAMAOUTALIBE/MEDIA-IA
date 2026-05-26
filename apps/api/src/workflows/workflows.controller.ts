@@ -6,9 +6,12 @@ import {
   Param,
   Post,
 } from "@nestjs/common";
+import { ApiTags } from "@nestjs/swagger";
+import { Roles } from "../auth/roles.decorator";
 import { workflowInstances } from "../mocks/data";
 import { NotificationsGateway } from "../notifications/notifications.gateway";
 
+@ApiTags("workflows")
 @Controller("workflows")
 export class WorkflowsController {
   constructor(private readonly notifications: NotificationsGateway) {}
@@ -28,6 +31,7 @@ export class WorkflowsController {
     };
   }
 
+  @Roles("editor")
   @Post(":id/advance")
   advance(@Param("id") id: string, @Body() body: { comment?: string } = {}) {
     const wf = workflowInstances.find((w) => w.id === id);

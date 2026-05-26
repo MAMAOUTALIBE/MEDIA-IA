@@ -1,7 +1,10 @@
 import { Module } from "@nestjs/common";
+import { APP_GUARD } from "@nestjs/core";
 import { ConfigModule } from "@nestjs/config";
+import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
 import { LoggerModule } from "nestjs-pino";
 
+import { PrismaModule } from "./prisma/prisma.module";
 import { HealthModule } from "./health/health.module";
 import { ContentsModule } from "./contents/contents.module";
 import { KpisModule } from "./kpis/kpis.module";
@@ -24,6 +27,9 @@ import { AuthModule } from "./auth/auth.module";
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, cache: true }),
+    ThrottlerModule.forRoot([
+      { name: "default", ttl: 60_000, limit: 100 }, // 100 req/min/IP par défaut
+    ]),
     LoggerModule.forRoot({
       pinoHttp: {
         level: process.env.LOG_LEVEL ?? "info",
@@ -40,6 +46,7 @@ import { AuthModule } from "./auth/auth.module";
         },
       },
     }),
+    PrismaModule,
     HealthModule,
     AuthModule,
     ContentsModule,
@@ -57,5 +64,6 @@ import { AuthModule } from "./auth/auth.module";
     AiModule,
     UsersModule,
   ],
+  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule {}

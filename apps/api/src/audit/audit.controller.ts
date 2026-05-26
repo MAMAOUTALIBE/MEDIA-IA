@@ -1,6 +1,10 @@
 import { Controller, Get, Query } from "@nestjs/common";
+import { ApiTags } from "@nestjs/swagger";
+import { Roles } from "../auth/roles.decorator";
 import { auditEvents } from "../mocks/data";
 
+@ApiTags("audit")
+@Roles("admin")
 @Controller("audit")
 export class AuditController {
   @Get()

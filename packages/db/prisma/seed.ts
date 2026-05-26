@@ -36,8 +36,18 @@
  */
 
 import { PrismaClient } from "@prisma/client";
+import { hash } from "@node-rs/argon2";
 
 const prisma = new PrismaClient();
+
+// OWASP 2024 baseline for Argon2id
+const ARGON2_OPTS = {
+  memoryCost: 65536, // 64 MiB
+  timeCost: 3,
+  parallelism: 4,
+} as const;
+
+const DEFAULT_PASSWORD = process.env.SEED_PASSWORD ?? "cmr2025!Dev";
 
 // ----------------------------- Users -----------------------------
 
@@ -111,11 +121,12 @@ const AUTOMATIONS = [
 async function main() {
   console.log("🌱 Seeding CMR database...");
 
-  // 1. Users
+  // 1. Users (Argon2id hashed password for all dev accounts)
+  const passwordHash = await hash(DEFAULT_PASSWORD, ARGON2_OPTS);
   for (const u of USERS) {
     await prisma.user.upsert({
       where: { id: u.id },
-      update: {},
+      update: { passwordHash },
       create: {
         id: u.id,
         email: u.email,
@@ -125,10 +136,12 @@ async function main() {
         initials: u.initials,
         color: u.color,
         active: u.id !== "u10",
+        passwordHash,
+        emailVerifiedAt: new Date(),
       },
     });
   }
-  console.log(`  ✓ ${USERS.length} users`);
+  console.log(`  ✓ ${USERS.length} users (password: ${DEFAULT_PASSWORD})`);
 
   // 2. Contents + channels
   for (const c of CONTENTS) {

@@ -1,6 +1,10 @@
+import "./instrument"; // MUST be first — Sentry instrumentation (ADR-006)
 import "reflect-metadata";
+import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
+import type { NestExpressApplication } from "@nestjs/platform-express";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
+import helmet from "helmet";
 import { Logger } from "nestjs-pino";
 import { AppModule } from "./app.module";
 
@@ -8,13 +12,38 @@ const PORT = Number(process.env.PORT ?? 4000);
 const HOST = process.env.HOST ?? "0.0.0.0";
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: true });
   app.useLogger(app.get(Logger));
+
+  // Security headers (ADR-006)
+  app.use(
+    helmet({
+      contentSecurityPolicy: process.env.NODE_ENV === "production",
+      crossOriginEmbedderPolicy: false,
+      hsts: process.env.NODE_ENV === "production",
+    }),
+  );
+
+  // Behind reverse proxy in prod
+  app.set("trust proxy", 1);
+
   app.enableCors({
-    origin: process.env.CORS_ORIGIN ?? "http://localhost:3000",
+    origin: (process.env.CORS_ORIGIN ?? "http://localhost:3000").split(","),
     credentials: true,
+    methods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+    maxAge: 3600,
   });
   app.setGlobalPrefix("api");
+
+  // DTO validation (ADR-006)
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+      transformOptions: { enableImplicitConversion: true },
+    }),
+  );
 
   // OpenAPI / Swagger
   const config = new DocumentBuilder()
