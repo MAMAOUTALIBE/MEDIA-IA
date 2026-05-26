@@ -1,0 +1,459 @@
+// CMR — Prisma schema (declarative)
+//
+// Phase 0 deliverable: declarative model only. No migration run yet because
+// Postgres is not installed on this Guest macOS account. To activate:
+//   1. Install Docker Desktop (admin required) OR provision a managed Postgres
+//   2. Set DATABASE_URL in .env
+//   3. pnpm --filter @cmr/db migrate:dev --name init
+//
+// Naming conventions:
+//   - Models in PascalCase, fields in camelCase
+//   - Enums in PascalCase
+//   - Soft delete via `deletedAt DateTime?`
+//   - Audit fields: createdAt, updatedAt (DB-managed)
+//   - All IDs are CUIDs (URL-safe, sortable)
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextSearchPostgres"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// Users & RBAC
+// ============================================================
+
+enum Role {
+  journalist
+  editor
+  chief
+  direction
+  community_manager
+  admin
+}
+
+model User {
+  id              String           @id @default(cuid())
+  email           String           @unique
+  name            String
+  role            Role             @default(journalist)
+  team            String?
+  active          Boolean          @default(true)
+  initials        String
+  color           String
+  passwordHash    String?
+  emailVerifiedAt DateTime?
+  lastActiveAt    DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  deletedAt       DateTime?
+
+  contents        Content[]        @relation("ContentAuthor")
+  workflows       WorkflowInstance[] @relation("WorkflowSubmittedBy")
+  auditEvents     AuditEvent[]
+  notifications   Notification[]
+  sessions        Session[]
+  mediaUploads    MediaAsset[]
+  comments        Comment[]
+  validations     ValidationAction[]
+
+  @@index([role])
+  @@index([deletedAt])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token        String   @unique
+  ip           String?
+  userAgent    String?
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// ============================================================
+// Contents & Channels
+// ============================================================
+
+enum ContentStatus {
+  draft
+  pending_editor
+  pending_chief
+  pending_direction
+  published
+  rejected
+  archived
+}
+
+enum ContentType {
+  article
+  video
+  audio
+  social
+}
+
+enum ChannelKey {
+  web
+  mobile
+  youtube
+  facebook
+  instagram
+  twitter
+  tiktok
+  telegram
+  smarttv
+}
+
+model Content {
+  id            String         @id @default(cuid())
+  title         String
+  body          String?
+  excerpt       String?
+  type          ContentType
+  status        ContentStatus  @default(draft)
+  authorId      String
+  author        User           @relation("ContentAuthor", fields: [authorId], references: [id])
+  thumbnailUrl  String?
+  scheduledAt   DateTime?
+  publishedAt   DateTime?
+  views         Int            @default(0)
+  engagement    Float          @default(0)
+  aiScore       Int?           // 0-100 global IA score
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  deletedAt     DateTime?
+
+  channels      ContentChannel[]
+  media         ContentMedia[]
+  workflowInstance WorkflowInstance?
+  comments      Comment[]
+  publications  Publication[]
+  aiChecks      AICheckResult[]
+
+  @@index([status])
+  @@index([authorId])
+  @@index([type])
+  @@index([scheduledAt])
+  @@index([publishedAt])
+  @@index([deletedAt])
+}
+
+model ContentChannel {
+  id        String     @id @default(cuid())
+  contentId String
+  content   Content    @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  channel   ChannelKey
+
+  @@unique([contentId, channel])
+  @@index([channel])
+}
+
+// ============================================================
+// Media (DAM)
+// ============================================================
+
+enum MediaType {
+  image
+  video
+  audio
+  document
+}
+
+model MediaAsset {
+  id            String     @id @default(cuid())
+  title         String
+  type          MediaType
+  url           String
+  thumbnailUrl  String?
+  durationSec   Int?
+  sizeBytes    BigInt
+  width         Int?
+  height        Int?
+  mimeType      String?
+  uploadedById  String
+  uploadedBy    User       @relation(fields: [uploadedById], references: [id])
+  tags          String[]
+  altText       String?
+  transcript    String?
+  copyrightInfo String?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  deletedAt     DateTime?
+
+  contents      ContentMedia[]
+
+  @@index([type])
+  @@index([uploadedById])
+  @@index([deletedAt])
+}
+
+model ContentMedia {
+  id        String     @id @default(cuid())
+  contentId String
+  content   Content    @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  mediaId   String
+  media     MediaAsset @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  position  Int        @default(0)
+
+  @@unique([contentId, mediaId])
+  @@index([mediaId])
+}
+
+// ============================================================
+// Workflow (Camunda BPMN — mirrored locally)
+// ============================================================
+
+enum WorkflowStep {
+  submitted
+  editor
+  chief
+  direction
+  published
+}
+
+model WorkflowInstance {
+  id              String       @id @default(cuid())
+  contentId       String       @unique
+  content         Content      @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  currentStep     WorkflowStep @default(submitted)
+  submittedById   String
+  submittedBy     User         @relation("WorkflowSubmittedBy", fields: [submittedById], references: [id])
+  startedAt       DateTime     @default(now())
+  completedAt     DateTime?
+  zeebeProcessId  String?
+
+  actions         ValidationAction[]
+
+  @@index([currentStep])
+  @@index([completedAt])
+}
+
+model ValidationAction {
+  id             String           @id @default(cuid())
+  instanceId     String
+  instance       WorkflowInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  actorId        String
+  actor          User             @relation(fields: [actorId], references: [id])
+  fromStep       WorkflowStep
+  toStep         WorkflowStep
+  decision       String           // "approve" | "reject" | "request_changes"
+  comment        String?
+  signatureHash  String           // SHA-256 of decision payload for immutability
+  createdAt      DateTime         @default(now())
+
+  @@index([instanceId])
+  @@index([actorId])
+}
+
+// ============================================================
+// Diffusion (multichannel publishing)
+// ============================================================
+
+enum PublicationStatus {
+  scheduled
+  publishing
+  published
+  failed
+  retracted
+}
+
+model Publication {
+  id            String            @id @default(cuid())
+  contentId     String
+  content       Content           @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  channel       ChannelKey
+  status        PublicationStatus @default(scheduled)
+  scheduledAt   DateTime
+  publishedAt   DateTime?
+  externalId    String?           // YouTube video ID, FB post ID, etc.
+  externalUrl   String?
+  formatVariant String?           // "1080p H.264", "vertical 9:16", etc.
+  errorMessage  String?
+  retryCount    Int               @default(0)
+  metrics       Json?             // engagement, views, likes
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@unique([contentId, channel])
+  @@index([status])
+  @@index([scheduledAt])
+}
+
+// ============================================================
+// AI Checks
+// ============================================================
+
+enum AICheckType {
+  spelling
+  plagiarism
+  sensitive
+  copyright
+  media_quality
+  seo
+  fake_news
+}
+
+enum AICheckStatus {
+  passed
+  warning
+  failed
+}
+
+model AICheckResult {
+  id        String        @id @default(cuid())
+  contentId String
+  content   Content       @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  type      AICheckType
+  status    AICheckStatus
+  score     Int           // 0-100
+  message   String?
+  rawOutput Json?
+  modelUsed String?       // "gpt-4.1", "claude-sonnet-4-6", etc.
+  createdAt DateTime      @default(now())
+
+  @@unique([contentId, type])
+  @@index([type])
+}
+
+// ============================================================
+// Comments
+// ============================================================
+
+model Comment {
+  id        String   @id @default(cuid())
+  contentId String
+  content   Content  @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id])
+  body      String
+  mentions  String[] // user IDs mentioned
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  @@index([contentId])
+  @@index([authorId])
+}
+
+// ============================================================
+// Automation rules
+// ============================================================
+
+model AutomationRule {
+  id          String   @id @default(cuid())
+  name        String
+  description String
+  trigger     String   // event name (e.g., "content.published")
+  action      String   // n8n workflow name or webhook URL
+  active      Boolean  @default(true)
+  config      Json     @default("{}")
+  runs        Int      @default(0)
+  lastRunAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([active])
+  @@index([trigger])
+}
+
+// ============================================================
+// Notifications
+// ============================================================
+
+enum NotificationKind {
+  mention
+  validation
+  system
+  publication
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind      NotificationKind
+  title     String
+  body      String?
+  metadata  Json?
+  read      Boolean          @default(false)
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  @@index([userId, read])
+  @@index([createdAt])
+}
+
+// ============================================================
+// Audit (append-only, immuable)
+// ============================================================
+
+enum AuditAction {
+  login
+  failed_login
+  logout
+  publish
+  validate
+  reject
+  create_content
+  update_content
+  delete_content
+  upload_media
+  invite_user
+  update_role
+  enable_automation
+  disable_automation
+  export_data
+  settings_change
+  permission_change
+}
+
+enum AuditSeverity {
+  info
+  warning
+  critical
+}
+
+model AuditEvent {
+  id            String        @id @default(cuid())
+  at            DateTime      @default(now())
+  actorId       String?
+  actor         User?         @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  action        AuditAction
+  target        String
+  severity      AuditSeverity
+  status        String        // "success" | "failure"
+  ip            String?
+  userAgent     String?
+  metadata      Json?
+  checksumSha256 String       // computed at insert, immutable
+
+  @@index([at])
+  @@index([actorId])
+  @@index([action])
+  @@index([severity])
+}
+
+// ============================================================
+// Calendar events (planned publications)
+// ============================================================
+
+model CalendarEvent {
+  id          String     @id @default(cuid())
+  contentId   String?    // null if placeholder slot
+  title       String
+  scheduledAt DateTime
+  channel     ChannelKey
+  contentType ContentType
+  createdAt   DateTime   @default(now())
+
+  @@index([scheduledAt])
+  @@index([channel])
+}

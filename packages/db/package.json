@@ -1,0 +1,20 @@
+{
+  "name": "@cmr/db",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Prisma schema and generated client for CMR",
+  "scripts": {
+    "format": "prisma format",
+    "validate": "prisma validate",
+    "generate": "prisma generate",
+    "migrate:dev": "prisma migrate dev",
+    "migrate:deploy": "prisma migrate deploy",
+    "studio": "prisma studio"
+  },
+  "devDependencies": {
+    "prisma": "^6.0.0"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.0.0"
+  }
+}
