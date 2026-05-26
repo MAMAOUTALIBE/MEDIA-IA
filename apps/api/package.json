@@ -5,11 +5,13 @@
   "description": "CMR — API NestJS (REST + WebSocket)",
   "main": "dist/main.js",
   "scripts": {
-    "build": "nest build",
+    "build": "tsc -p tsconfig.json",
     "dev": "nest start --watch",
     "start": "node dist/main.js",
     "lint": "eslint src --ext .ts",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "format": "prettier --write src"
   },
   "dependencies": {
@@ -20,20 +22,24 @@
     "@nestjs/jwt": "^11.0.0",
     "@nestjs/platform-express": "^11.0.0",
     "@nestjs/platform-socket.io": "^11.0.0",
+    "@nestjs/swagger": "^11.0.0",
     "@nestjs/websockets": "^11.0.0",
     "nestjs-pino": "^4.4.0",
     "pino-http": "^10.4.0",
     "pino-pretty": "^11.3.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
-    "socket.io": "^4.8.1"
+    "socket.io": "^4.8.1",
+    "swagger-ui-express": "^5.0.1"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.0",
     "@nestjs/schematics": "^11.0.0",
     "@types/express": "^5.0.0",
     "@types/node": "^20.0.0",
+    "@types/swagger-ui-express": "^4.1.6",
     "ts-node": "^10.9.2",
-    "typescript": "^5.6.0"
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
   }
 }
