@@ -9,6 +9,7 @@ import { Prisma } from "@prisma/client";
 import type { WorkflowStep } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuditService } from "../audit/audit.service";
+import { EventBusService } from "../publishing/event-bus.service";
 
 const STEP_ORDER: WorkflowStep[] = ["submitted", "editor", "chief", "direction", "published"];
 
@@ -30,6 +31,7 @@ export class WorkflowsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly bus: EventBusService,
   ) {}
 
   private nextStep(current: WorkflowStep): WorkflowStep | null {
@@ -159,6 +161,17 @@ export class WorkflowsService {
         await this.prisma.content.update({
           where: { id: instance.contentId },
           data: { status: "published", publishedAt: new Date() },
+        });
+        const channels = await this.prisma.contentChannel.findMany({
+          where: { contentId: instance.contentId },
+          select: { channel: true },
+        });
+        // Fire-and-forget : déclenche le fan-out via les connectors (Sprint 5)
+        void this.bus.publish({
+          type: "content.published",
+          contentId: instance.contentId,
+          channels: channels.map((c) => c.channel),
+          publishedAt: new Date().toISOString(),
         });
       } else {
         await this.prisma.content.update({
