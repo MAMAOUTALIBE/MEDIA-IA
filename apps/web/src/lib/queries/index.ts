@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { dashboardKpis } from "@/lib/mocks/kpis";
 import { audienceByRange, type AudienceRange } from "@/lib/mocks/audience-series";
@@ -17,65 +17,103 @@ import { engagementByDayOfWeek, topContents, topChannels } from "@/lib/mocks/ana
 import { diffusionMatrix, diffusionQuickStats } from "@/lib/mocks/diffusion";
 import { users } from "@/lib/mocks/users";
 import { auditEvents } from "@/lib/mocks/audit-logs";
-import { tryApi, API_ENABLED } from "@/lib/api-client";
-import type { KpiMetric, AuditEvent, Content, PlatformShare } from "@/types";
+import { tryApi, postApi, API_ENABLED } from "@/lib/api-client";
+import type {
+  KpiMetric,
+  AuditEvent,
+  Content,
+  PlatformShare,
+  PendingContent,
+  ActivityEvent,
+  SystemAlert,
+  WorkflowInstance,
+  AICheckResult,
+  MediaAsset,
+  AutomationRule,
+  CalendarEvent,
+  TimeSeriesPoint,
+  User,
+} from "@/types";
 
 function delayed<T>(value: T, ms = 150): Promise<T> {
   return new Promise((resolve) => setTimeout(() => resolve(value), ms));
 }
 
+const apiKey = (k: string) => [k, API_ENABLED ? "api" : "mock"] as const;
+
+// =========================================================================
+// Queries (read)
+// =========================================================================
+
 export function useKpis() {
   return useQuery({
-    queryKey: ["kpis", API_ENABLED ? "api" : "mock"],
+    queryKey: apiKey("kpis"),
     queryFn: async () => {
-      const fromApi = await tryApi<{ items: KpiMetric[] }>("kpis");
-      if (fromApi?.items) return fromApi.items;
-      return delayed(dashboardKpis);
+      const r = await tryApi<{ items: KpiMetric[] }>("kpis");
+      return r?.items ?? (await delayed(dashboardKpis));
     },
   });
 }
 
 export function useAudienceSeries(range: AudienceRange) {
   return useQuery({
-    queryKey: ["audience", range],
-    queryFn: () => delayed(audienceByRange[range]),
+    queryKey: ["audience", range, API_ENABLED ? "api" : "mock"],
+    queryFn: async () => {
+      const r = await tryApi<{ items: TimeSeriesPoint[] }>(`audience?range=${range}`);
+      return r?.items ?? (await delayed(audienceByRange[range]));
+    },
   });
 }
 
 export function usePlatformShares() {
   return useQuery({
-    queryKey: ["platforms", API_ENABLED ? "api" : "mock"],
+    queryKey: apiKey("platforms"),
     queryFn: async () => {
-      const fromApi = await tryApi<{ items: PlatformShare[] }>("kpis/platforms");
-      if (fromApi?.items) return fromApi.items;
-      return delayed(platformShares);
+      const r = await tryApi<{ items: PlatformShare[] }>("kpis/platforms");
+      return r?.items ?? (await delayed(platformShares));
     },
   });
 }
 
 export function usePendingContents() {
-  return useQuery({ queryKey: ["pending-contents"], queryFn: () => delayed(pendingContents) });
+  return useQuery({
+    queryKey: apiKey("pending-contents"),
+    queryFn: async () => {
+      const r = await tryApi<{ items: PendingContent[] }>("contents/pending");
+      return r?.items ?? (await delayed(pendingContents));
+    },
+  });
 }
 
 export function useRecentActivity() {
-  return useQuery({ queryKey: ["recent-activity"], queryFn: () => delayed(recentActivity) });
+  return useQuery({
+    queryKey: apiKey("recent-activity"),
+    queryFn: async () => {
+      const r = await tryApi<{ items: ActivityEvent[] }>("activity");
+      return r?.items ?? (await delayed(recentActivity));
+    },
+  });
 }
 
 export function useSystemAlerts() {
-  return useQuery({ queryKey: ["system-alerts"], queryFn: () => delayed(systemAlerts) });
+  return useQuery({
+    queryKey: apiKey("system-alerts"),
+    queryFn: async () => {
+      const r = await tryApi<{ items: SystemAlert[] }>("notifications/system");
+      return r?.items ?? (await delayed(systemAlerts));
+    },
+  });
 }
 
 export function useContents() {
   return useQuery({
-    queryKey: ["contents", API_ENABLED ? "api" : "mock"],
+    queryKey: apiKey("contents"),
     queryFn: async () => {
-      const fromApi = await tryApi<{ items: Content[] }>("contents");
-      if (fromApi?.items) {
-        // API renvoie un sous-ensemble (5 contenus seed) → merge avec mocks pour les autres
-        const apiIds = new Set(fromApi.items.map((c) => c.id));
-        const apiOverride = fromApi.items;
+      const r = await tryApi<{ items: Content[] }>("contents");
+      if (r?.items) {
+        const apiIds = new Set(r.items.map((c) => c.id));
         const localOnly = contents.filter((c) => !apiIds.has(c.id));
-        return [...apiOverride, ...localOnly];
+        return [...r.items, ...localOnly];
       }
       return delayed(contents);
     },
@@ -84,59 +122,146 @@ export function useContents() {
 
 export function useWorkflows() {
   return useQuery({
-    queryKey: ["workflows"],
-    queryFn: () => delayed({ instances: workflowInstances, counts: workflowCountsByStep }),
+    queryKey: apiKey("workflows"),
+    queryFn: async () => {
+      const r = await tryApi<{ items: WorkflowInstance[]; stepCounts: Record<number, number> }>(
+        "workflows",
+      );
+      if (r?.items) {
+        return { instances: r.items, counts: r.stepCounts };
+      }
+      return delayed({ instances: workflowInstances, counts: workflowCountsByStep });
+    },
   });
 }
 
 export function useAIChecks() {
   return useQuery({
-    queryKey: ["ai-checks"],
-    queryFn: () => delayed({ results: aiCheckResults, score: aiGlobalScore, recommendations: aiRecommendations }),
+    queryKey: apiKey("ai-checks"),
+    queryFn: async () => {
+      const r = await tryApi<{ results: AICheckResult[]; score: number; recommendations: string[] }>(
+        "ai/checks",
+      );
+      if (r) return r;
+      return delayed({ results: aiCheckResults, score: aiGlobalScore, recommendations: aiRecommendations });
+    },
   });
 }
 
 export function useMediaAssets() {
-  return useQuery({ queryKey: ["media-assets"], queryFn: () => delayed(mediaAssets) });
+  return useQuery({
+    queryKey: apiKey("media-assets"),
+    queryFn: async () => {
+      const r = await tryApi<{ items: MediaAsset[] }>("media");
+      return r?.items ?? (await delayed(mediaAssets));
+    },
+  });
 }
 
 export function useAutomations() {
-  return useQuery({ queryKey: ["automations"], queryFn: () => delayed(automationRules) });
+  return useQuery({
+    queryKey: apiKey("automations"),
+    queryFn: async () => {
+      const r = await tryApi<{ items: AutomationRule[] }>("automations");
+      return r?.items ?? (await delayed(automationRules));
+    },
+  });
 }
 
 export function useCalendarEvents() {
-  return useQuery({ queryKey: ["calendar"], queryFn: () => delayed(calendarEvents) });
+  return useQuery({
+    queryKey: apiKey("calendar"),
+    queryFn: async () => {
+      const r = await tryApi<{ items: CalendarEvent[] }>("calendar");
+      return r?.items ?? (await delayed(calendarEvents));
+    },
+  });
 }
 
 export function useAnalyticsDeep() {
   return useQuery({
-    queryKey: ["analytics-deep"],
-    queryFn: () => delayed({ engagementByDayOfWeek, topContents, topChannels }),
+    queryKey: apiKey("analytics-deep"),
+    queryFn: async () => {
+      const r = await tryApi<{
+        engagementByDayOfWeek: typeof engagementByDayOfWeek;
+        topContents: typeof topContents;
+        topChannels: typeof topChannels;
+      }>("analytics/deep");
+      if (r) return r;
+      return delayed({ engagementByDayOfWeek, topContents, topChannels });
+    },
   });
 }
 
 export function useDiffusionMatrix() {
   return useQuery({
-    queryKey: ["diffusion"],
-    queryFn: () => delayed({ matrix: diffusionMatrix, stats: diffusionQuickStats }),
+    queryKey: apiKey("diffusion"),
+    queryFn: async () => {
+      const r = await tryApi<{ matrix: typeof diffusionMatrix; stats: typeof diffusionQuickStats }>(
+        "diffusion/matrix",
+      );
+      return r ?? (await delayed({ matrix: diffusionMatrix, stats: diffusionQuickStats }));
+    },
   });
 }
 
 export function useUsers() {
-  return useQuery({ queryKey: ["users"], queryFn: () => delayed(users) });
+  return useQuery({
+    queryKey: apiKey("users"),
+    queryFn: async () => {
+      const r = await tryApi<{ items: User[] }>("users");
+      return r?.items ?? (await delayed(users));
+    },
+  });
 }
 
 export function useAuditEvents() {
   return useQuery({
-    queryKey: ["audit", API_ENABLED ? "api" : "mock"],
+    queryKey: apiKey("audit"),
     queryFn: async () => {
-      const fromApi = await tryApi<{ items: AuditEvent[] }>("audit");
-      if (fromApi?.items && fromApi.items.length > 0) {
-        // L'API a 10 events, le mock a 40 — privilégier le mock plus riche en démo
-        // mais utiliser l'API si on est en mode "API-only" plus tard
-        return auditEvents;
-      }
+      const r = await tryApi<{ items: AuditEvent[] }>("audit");
+      // L'API a 10 events seed; le mock local en a 40 plus diverses pour la démo.
+      // On privilégie le mock plus riche, mais on note que l'API répond bien.
+      if (r?.items) return auditEvents;
       return delayed(auditEvents);
+    },
+  });
+}
+
+// =========================================================================
+// Mutations (write)
+// =========================================================================
+
+export function useValidateContent() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, comment }: { id: string; comment?: string }) => {
+      const r = await postApi<{ ok: boolean; validated: PendingContent; newStep: string }>(
+        `contents/${id}/validate`,
+        { comment },
+      );
+      return r;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["pending-contents", "api"] });
+      queryClient.invalidateQueries({ queryKey: ["pending-contents", "mock"] });
+    },
+  });
+}
+
+export function useRejectContent() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, reason }: { id: string; reason?: string }) => {
+      const r = await postApi<{ ok: boolean; rejected: PendingContent }>(
+        `contents/${id}/reject`,
+        { reason },
+      );
+      return r;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["pending-contents", "api"] });
+      queryClient.invalidateQueries({ queryKey: ["pending-contents", "mock"] });
     },
   });
 }

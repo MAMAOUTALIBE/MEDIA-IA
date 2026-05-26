@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { GlassCard, GlassCardHeader } from "@/components/ui/glass-card";
-import { usePendingContents } from "@/lib/queries";
+import { usePendingContents, useValidateContent } from "@/lib/queries";
+import { API_ENABLED } from "@/lib/api-client";
 import { usePendingStore } from "@/lib/stores/pending-store";
 import { InitialsAvatar } from "@/components/ui/initials-avatar";
 import { formatRelative } from "@/lib/format";
@@ -34,20 +35,52 @@ export function PendingContentsList() {
   const { data } = usePendingContents();
   const validated = usePendingStore((s) => s.validatedIds);
   const rejected = usePendingStore((s) => s.rejectedIds);
-  const validate = usePendingStore((s) => s.validate);
-  const reject = usePendingStore((s) => s.reject);
+  const validateLocal = usePendingStore((s) => s.validate);
+  const rejectLocal = usePendingStore((s) => s.reject);
+  const apiMutation = useValidateContent();
   const [openContent, setOpenContent] = useState<PendingContent | null>(null);
 
   const list = (data ?? []).filter(
     (c) => !validated.has(c.id) && !rejected.has(c.id),
   );
 
+  function performValidate(c: PendingContent, source: "quick" | "sheet") {
+    if (API_ENABLED) {
+      apiMutation.mutate(
+        { id: c.id, comment: source === "quick" ? "Validé via queue" : "Validé via Sheet détail" },
+        {
+          onSuccess: (r: { newStep?: string }) => {
+            validateLocal(c.id);
+            toast.success(`« ${c.title} » validé`, {
+              description: `Étape ${stepLabel[c.step]} → ${r?.newStep ?? "—"} · WS broadcast`,
+            });
+          },
+          onError: (err: unknown) => {
+            validateLocal(c.id);
+            toast.error("Échec côté serveur · mode local", {
+              description: err instanceof Error ? err.message.slice(0, 80) : "—",
+            });
+          },
+        },
+      );
+    } else {
+      validateLocal(c.id);
+      toast.success(`« ${c.title} » validé`, {
+        description: `Étape ${stepLabel[c.step]} franchie (mode local)`,
+      });
+    }
+  }
+
+  function performReject(c: PendingContent) {
+    rejectLocal(c.id);
+    toast.error(`« ${c.title} » rejeté`, {
+      description: "Le journaliste a été notifié",
+    });
+  }
+
   function handleQuickValidate(e: React.MouseEvent, c: PendingContent) {
     e.stopPropagation();
-    validate(c.id);
-    toast.success(`« ${c.title} » validé`, {
-      description: `Étape ${stepLabel[c.step]} franchie`,
-    });
+    performValidate(c, "quick");
   }
 
   return (
@@ -123,8 +156,14 @@ export function PendingContentsList() {
 
       <ContentDetailSheet
         pending={openContent}
-        onValidate={validate}
-        onReject={reject}
+        onValidate={(id) => {
+          const c = list.find((x) => x.id === id);
+          if (c) performValidate(c, "sheet");
+        }}
+        onReject={(id) => {
+          const c = list.find((x) => x.id === id);
+          if (c) performReject(c);
+        }}
         onOpenChange={(o) => {
           if (!o) setOpenContent(null);
         }}
