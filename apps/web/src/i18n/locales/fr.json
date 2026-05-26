@@ -1,0 +1,53 @@
+{
+  "common": {
+    "appName": "CMR · MEDIA-IA",
+    "tagline": "Plateforme intelligente de gestion et de diffusion de contenus média",
+    "login": "Connexion",
+    "logout": "Déconnexion",
+    "save": "Enregistrer",
+    "cancel": "Annuler",
+    "delete": "Supprimer",
+    "publish": "Publier",
+    "validate": "Valider",
+    "reject": "Rejeter"
+  },
+  "nav": {
+    "dashboard": "Tableau de bord",
+    "contents": "Contenus",
+    "workflows": "Workflows",
+    "analytics": "Analyses",
+    "audit": "Audit",
+    "diffusion": "Diffusion",
+    "medias": "Médias",
+    "automations": "Automatisations",
+    "calendar": "Calendrier",
+    "users": "Utilisateurs",
+    "settings": "Paramètres"
+  },
+  "auth": {
+    "emailLabel": "Adresse e-mail",
+    "passwordLabel": "Mot de passe",
+    "mfaCodeLabel": "Code TOTP",
+    "loginButton": "Se connecter",
+    "loginError": "Identifiants invalides",
+    "mfaRequired": "Authentification à deux facteurs requise",
+    "sessionExpired": "Session expirée, veuillez vous reconnecter"
+  },
+  "contents": {
+    "title": "Contenus",
+    "newContent": "Nouveau contenu",
+    "statusDraft": "Brouillon",
+    "statusPendingEditor": "En attente rédaction",
+    "statusPendingChief": "En attente chef d'édition",
+    "statusPendingDirection": "En attente direction",
+    "statusPublished": "Publié",
+    "statusRejected": "Rejeté"
+  },
+  "a11y": {
+    "skipToContent": "Aller au contenu principal",
+    "openMenu": "Ouvrir le menu de navigation",
+    "closeMenu": "Fermer le menu de navigation",
+    "loadingChart": "Chargement du graphique",
+    "videoPlayer": "Lecteur vidéo, accessible au clavier"
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "common": {
+    "appName": "CMR · MEDIA-IA",
+    "tagline": "منصة ذكية لإدارة وبث المحتوى الإعلامي",
+    "login": "تسجيل الدخول",
+    "logout": "تسجيل الخروج",
+    "save": "حفظ",
+    "cancel": "إلغاء",
+    "delete": "حذف",
+    "publish": "نشر",
+    "validate": "المصادقة",
+    "reject": "رفض"
+  },
+  "nav": {
+    "dashboard": "لوحة التحكم",
+    "contents": "المحتويات",
+    "workflows": "سير العمل",
+    "analytics": "التحليلات",
+    "audit": "سجل التدقيق",
+    "diffusion": "التوزيع",
+    "medias": "مكتبة الوسائط",
+    "automations": "الأتمتة",
+    "calendar": "التقويم",
+    "users": "المستخدمون",
+    "settings": "الإعدادات"
+  },
+  "auth": {
+    "emailLabel": "عنوان البريد الإلكتروني",
+    "passwordLabel": "كلمة المرور",
+    "mfaCodeLabel": "رمز TOTP",
+    "loginButton": "تسجيل الدخول",
+    "loginError": "بيانات الاعتماد غير صالحة",
+    "mfaRequired": "يلزم التحقق بخطوتين",
+    "sessionExpired": "انتهت صلاحية الجلسة ، يرجى تسجيل الدخول مرة أخرى"
+  },
+  "contents": {
+    "title": "المحتويات",
+    "newContent": "محتوى جديد",
+    "statusDraft": "مسودة",
+    "statusPendingEditor": "بانتظار مراجعة المحرر",
+    "statusPendingChief": "بانتظار مراجعة الرئيس",
+    "statusPendingDirection": "بانتظار قرار الإدارة",
+    "statusPublished": "منشور",
+    "statusRejected": "مرفوض"
+  },
+  "a11y": {
+    "skipToContent": "الانتقال إلى المحتوى الرئيسي",
+    "openMenu": "فتح قائمة التنقل",
+    "closeMenu": "إغلاق قائمة التنقل",
+    "loadingChart": "جاري تحميل الرسم البياني",
+    "videoPlayer": "مشغل الفيديو ، يمكن الوصول إليه عبر لوحة المفاتيح"
+  }
+}

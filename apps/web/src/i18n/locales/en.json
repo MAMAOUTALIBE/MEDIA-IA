@@ -1,0 +1,53 @@
+{
+  "common": {
+    "appName": "CMR · MEDIA-IA",
+    "tagline": "Intelligent platform for media content management and broadcasting",
+    "login": "Sign in",
+    "logout": "Sign out",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "publish": "Publish",
+    "validate": "Validate",
+    "reject": "Reject"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "contents": "Contents",
+    "workflows": "Workflows",
+    "analytics": "Analytics",
+    "audit": "Audit log",
+    "diffusion": "Distribution",
+    "medias": "Media library",
+    "automations": "Automations",
+    "calendar": "Calendar",
+    "users": "Users",
+    "settings": "Settings"
+  },
+  "auth": {
+    "emailLabel": "Email address",
+    "passwordLabel": "Password",
+    "mfaCodeLabel": "TOTP code",
+    "loginButton": "Sign in",
+    "loginError": "Invalid credentials",
+    "mfaRequired": "Two-factor authentication required",
+    "sessionExpired": "Session expired, please sign in again"
+  },
+  "contents": {
+    "title": "Contents",
+    "newContent": "New content",
+    "statusDraft": "Draft",
+    "statusPendingEditor": "Pending editor review",
+    "statusPendingChief": "Pending chief review",
+    "statusPendingDirection": "Pending direction",
+    "statusPublished": "Published",
+    "statusRejected": "Rejected"
+  },
+  "a11y": {
+    "skipToContent": "Skip to main content",
+    "openMenu": "Open navigation menu",
+    "closeMenu": "Close navigation menu",
+    "loadingChart": "Loading chart",
+    "videoPlayer": "Video player, keyboard accessible"
+  }
+}

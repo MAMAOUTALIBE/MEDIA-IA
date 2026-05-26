@@ -16,6 +16,8 @@ allowBuilds:
   unrs-resolver: true
   '@sentry-internal/node-cpu-profiler': true
   '@sentry/cli': true
+  '@parcel/watcher': true
+  '@swc/core': true
 
 onlyBuiltDependencies:
   - "@nestjs/core"
@@ -31,3 +33,5 @@ onlyBuiltDependencies:
   - unrs-resolver
   - "@sentry-internal/node-cpu-profiler"
   - "@sentry/cli"
+  - "@parcel/watcher"
+  - "@swc/core"
