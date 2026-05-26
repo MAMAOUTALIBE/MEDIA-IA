@@ -1,15 +1,23 @@
 import { Body, Controller, Get, Post, Res } from "@nestjs/common";
+import { ApiTags } from "@nestjs/swagger";
+import { IsOptional, IsString, MaxLength } from "class-validator";
 import type { Response } from "express";
 import { aiCheckResults, aiGlobalScore, aiRecommendations } from "../mocks/data-extra";
 import { AiService } from "./ai.service";
+import { ClaudeService } from "./claude.service";
 
-interface AskBody {
+class AskDto {
+  @IsOptional() @IsString() @MaxLength(4000)
   question?: string;
 }
 
+@ApiTags("ai")
 @Controller("ai")
 export class AiController {
-  constructor(private readonly ai: AiService) {}
+  constructor(
+    private readonly ai: AiService,
+    private readonly claude: ClaudeService,
+  ) {}
 
   @Get("checks")
   checks() {
@@ -17,26 +25,32 @@ export class AiController {
       results: aiCheckResults,
       score: aiGlobalScore,
       recommendations: aiRecommendations,
+      engine: this.claude.isAvailable() ? "claude-sonnet-4-6" : "heuristic-v1",
     };
   }
 
   @Post("ask")
-  ask(@Body() body: AskBody) {
+  async ask(@Body() body: AskDto) {
     const q = (body?.question ?? "").toString();
     if (q.toLowerCase().includes("/summary") || q.toLowerCase().includes("résum")) {
       return this.ai.summary();
     }
-    return this.ai.ask(q);
+    // Sprint 3: prefer Claude when available, fallback to heuristic
+    if (this.claude.isAvailable()) {
+      try {
+        const text = await this.claude.ask(q);
+        return { reply: text, engine: "claude-sonnet-4-6" };
+      } catch (e) {
+        const err = e instanceof Error ? e.message : "unknown";
+        const fallback = this.ai.ask(q);
+        return { ...fallback, engine: "heuristic-v1", claudeError: err };
+      }
+    }
+    return { ...this.ai.ask(q), engine: "heuristic-v1" };
   }
 
-  /**
-   * Server-Sent Events streaming. Le client reçoit :
-   *   - event "chunk" : { text } pour chaque mot/segment
-   *   - event "done"  : {} quand la réponse est complète
-   *   - event "error" : { message } si une erreur survient
-   */
   @Post("ask/stream")
-  async askStream(@Body() body: AskBody, @Res() res: Response) {
+  async askStream(@Body() body: AskDto, @Res() res: Response) {
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache, no-transform");
     res.setHeader("Connection", "keep-alive");
@@ -45,7 +59,8 @@ export class AiController {
 
     const q = (body?.question ?? "").toString();
     try {
-      for await (const chunk of this.ai.askStream(q)) {
+      const stream = this.claude.isAvailable() ? this.claude.askStream(q) : this.ai.askStream(q);
+      for await (const chunk of stream) {
         res.write(`event: chunk\ndata: ${JSON.stringify({ text: chunk })}\n\n`);
       }
       res.write(`event: done\ndata: {}\n\n`);
