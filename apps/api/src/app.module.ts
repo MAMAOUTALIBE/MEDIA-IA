@@ -6,6 +6,7 @@ import { LoggerModule } from "nestjs-pino";
 
 import { PrismaModule } from "./prisma/prisma.module";
 import { PublishingModule } from "./publishing/publishing.module";
+import { MetricsModule } from "./metrics/metrics.module";
 import { HealthModule } from "./health/health.module";
 import { ContentsModule } from "./contents/contents.module";
 import { KpisModule } from "./kpis/kpis.module";
@@ -49,6 +50,7 @@ import { AuthModule } from "./auth/auth.module";
     }),
     PrismaModule,
     PublishingModule,
+    MetricsModule,
     HealthModule,
     AuthModule,
     ContentsModule,

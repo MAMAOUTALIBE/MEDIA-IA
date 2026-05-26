@@ -18,6 +18,7 @@ allowBuilds:
   '@sentry/cli': true
   '@parcel/watcher': true
   '@swc/core': true
+  protobufjs: true
 
 onlyBuiltDependencies:
   - "@nestjs/core"
@@ -35,3 +36,4 @@ onlyBuiltDependencies:
   - "@sentry/cli"
   - "@parcel/watcher"
   - "@swc/core"
+  - protobufjs

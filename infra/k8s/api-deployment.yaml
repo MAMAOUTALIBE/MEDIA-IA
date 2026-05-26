@@ -1,0 +1,221 @@
+# =============================================================================
+# CMR API — Kubernetes Deployment (Sprint 8)
+# =============================================================================
+# Apply : kubectl apply -f infra/k8s/api-deployment.yaml
+# Pré-requis :
+#   - namespace `cmr` créé
+#   - secret `cmr-api-secrets` (DATABASE_URL, JWT_SECRET, ANTHROPIC_API_KEY,
+#     S3_SECRET_KEY, SENTRY_DSN, etc.)
+#   - service postgres + redis accessible (Sprint 8b — Helm chart Bitnami)
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cmr-api
+  namespace: cmr
+  labels:
+    app: cmr-api
+    component: api
+    tier: backend
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: cmr-api
+  template:
+    metadata:
+      labels:
+        app: cmr-api
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "4000"
+        prometheus.io/path: "/api/metrics"
+    spec:
+      serviceAccountName: cmr-api
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: api
+          image: ghcr.io/cmr/api:0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 4000
+              protocol: TCP
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: PORT
+              value: "4000"
+            - name: HOST
+              value: "0.0.0.0"
+            - name: LOG_LEVEL
+              value: info
+            - name: CORS_ORIGIN
+              value: "https://cmr.gov.example"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector.observability:4318"
+          envFrom:
+            - secretRef:
+                name: cmr-api-secrets
+          resources:
+            requests:
+              cpu: 250m
+              memory: 384Mi
+            limits:
+              cpu: 1
+              memory: 1Gi
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: 4000
+            failureThreshold: 30
+            periodSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 4000
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/health/ready
+              port: 4000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: { sizeLimit: 64Mi }
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: cmr-api
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cmr-api
+  namespace: cmr
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app: cmr-api
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: cmr-api
+  namespace: cmr
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: cmr-api
+  minReplicas: 3
+  maxReplicas: 20
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+    scaleUp:
+      stabilizationWindowSeconds: 30
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cmr-api-deny-all-default
+  namespace: cmr
+spec:
+  podSelector:
+    matchLabels:
+      app: cmr-api
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # ingress controller
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 4000
+    # prometheus scrape
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: observability
+      ports:
+        - protocol: TCP
+          port: 4000
+  egress:
+    # DNS
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+    # Postgres + Redis + MinIO (intra-namespace)
+    - to:
+        - podSelector:
+            matchLabels:
+              tier: backend
+    # OpenTelemetry collector
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: observability
+    # External : Anthropic API + Sentry + S3 (production buckets)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.0.0/16
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
