@@ -4,6 +4,20 @@ import { PrismaService } from "../prisma/prisma.service";
 import { Prisma } from "@prisma/client";
 import type { AuditAction, AuditSeverity } from "@prisma/client";
 
+/**
+ * Sérialisation JSON déterministe (clés triées récursivement).
+ * Indispensable pour le checksum de la chaîne d'audit car Postgres jsonb
+ * ne préserve pas l'ordre d'insertion des clés.
+ */
+function stableStringify(value: unknown): string {
+  if (value === null || value === undefined) return "null";
+  if (typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return "[" + value.map(stableStringify).join(",") + "]";
+  const obj = value as Record<string, unknown>;
+  const keys = Object.keys(obj).sort();
+  return "{" + keys.map((k) => JSON.stringify(k) + ":" + stableStringify(obj[k])).join(",") + "}";
+}
+
 export type AuditInput = {
   action: AuditAction;
   target: string;
@@ -27,25 +41,17 @@ export class AuditService {
   constructor(private readonly prisma: PrismaService) {}
 
   async log(input: AuditInput) {
-    const last = await this.prisma.auditEvent.findFirst({
-      orderBy: { at: "desc" },
-      select: { checksumSha256: true },
-    });
-    const prevChecksum = last?.checksumSha256 ?? "GENESIS";
-    const canonicalPayload = {
-      action: input.action,
-      target: input.target,
-      severity: input.severity ?? "info",
-      status: input.status ?? "success",
-      actorId: input.actorId ?? null,
-      ip: input.ip ?? null,
-      userAgent: input.userAgent ?? null,
-      metadata: input.metadata ?? null,
-    };
-    const canonical = JSON.stringify(canonicalPayload) + "|" + prevChecksum;
-    const checksumSha256 = createHash("sha256").update(canonical).digest("hex");
-    return this.prisma.auditEvent.create({
-      data: {
+    // Sprint 1.4 — chaîne sérialisée via pg_advisory_xact_lock
+    // (clé arbitraire 909090 = "AUDIT_CHAIN") afin d'éviter les races entre
+    // writers concurrents qui liraient le même `prev`.
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(909090)`);
+      const last = await tx.auditEvent.findFirst({
+        orderBy: { at: "desc" },
+        select: { checksumSha256: true },
+      });
+      const prevChecksum = last?.checksumSha256 ?? "GENESIS";
+      const canonicalPayload = {
         action: input.action,
         target: input.target,
         severity: input.severity ?? "info",
@@ -53,9 +59,23 @@ export class AuditService {
         actorId: input.actorId ?? null,
         ip: input.ip ?? null,
         userAgent: input.userAgent ?? null,
-        metadata: input.metadata ?? Prisma.JsonNull,
-        checksumSha256,
-      },
+        metadata: input.metadata ?? null,
+      };
+      const canonical = stableStringify(canonicalPayload) + "|" + prevChecksum;
+      const checksumSha256 = createHash("sha256").update(canonical).digest("hex");
+      return tx.auditEvent.create({
+        data: {
+          action: input.action,
+          target: input.target,
+          severity: input.severity ?? "info",
+          status: input.status ?? "success",
+          actorId: input.actorId ?? null,
+          ip: input.ip ?? null,
+          userAgent: input.userAgent ?? null,
+          metadata: input.metadata ?? Prisma.JsonNull,
+          checksumSha256,
+        },
+      });
     });
   }
 
@@ -90,7 +110,7 @@ export class AuditService {
         userAgent: e.userAgent,
         metadata: e.metadata ?? null,
       };
-      const canonical = JSON.stringify(payload) + "|" + prev;
+      const canonical = stableStringify(payload) + "|" + prev;
       const expected = createHash("sha256").update(canonical).digest("hex");
       if (expected !== e.checksumSha256) {
         return { valid: false, brokenAt: e.id };

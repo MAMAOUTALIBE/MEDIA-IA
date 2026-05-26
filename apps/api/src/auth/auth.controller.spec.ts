@@ -18,12 +18,16 @@ import { PrismaClient } from "@prisma/client";
 const API = process.env.API_BASE_URL ?? "http://localhost:4000";
 const TEST_PWD = "Sup3rTest-Pwd!";
 
+// HTTP black-box spec: the test user must exist in the same DB the live API uses.
+// Live API reads DATABASE_URL (cmr_dev) — not TEST_DATABASE_URL.
+const LIVE_API_DB_URL = process.env.DATABASE_URL!;
+
 describe("AuthController (HTTP)", () => {
   let prisma: PrismaClient;
   let adminToken: string;
 
   beforeAll(async () => {
-    prisma = new PrismaClient();
+    prisma = new PrismaClient({ datasources: { db: { url: LIVE_API_DB_URL } } });
     const passwordHash = await argon2Hash(TEST_PWD, { memoryCost: 65536, timeCost: 3, parallelism: 4 });
     await prisma.user.upsert({
       where: { id: "ctl-admin" },
@@ -43,13 +47,22 @@ describe("AuthController (HTTP)", () => {
     const ping = await request(API).get("/api/health").expect(200);
     expect(ping.body.ok).toBe(true);
 
-    // Pre-fetch an admin token once (throttler is 5/min on /login)
-    const login = await request(API)
-      .post("/api/auth/login")
-      .send({ email: "ctl.admin@cmr.tv", password: TEST_PWD });
-    if (login.status !== 201) throw new Error(`admin login failed: ${login.status} ${JSON.stringify(login.body)}`);
+    // Pre-fetch an admin token once. Retry on 429 since the throttler is 5/min/IP.
+    let attempt = 0;
+    let login;
+    while (true) {
+      login = await request(API)
+        .post("/api/auth/login")
+        .send({ email: "ctl.admin@cmr.tv", password: TEST_PWD });
+      if (login.status === 201) break;
+      if (login.status === 429 && attempt++ < 18) {
+        await new Promise((r) => setTimeout(r, 5000));
+        continue;
+      }
+      throw new Error(`admin login failed: ${login.status} ${JSON.stringify(login.body)}`);
+    }
     adminToken = login.body.token;
-  }, 30000);
+  }, 120000);
 
   afterAll(async () => {
     if (prisma) {

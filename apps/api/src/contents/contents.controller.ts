@@ -6,13 +6,15 @@ import {
   Param,
   Post,
   Query,
+  Req,
 } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { IsOptional, IsString, MaxLength } from "class-validator";
+import type { Request } from "express";
 import { Roles } from "../auth/roles.decorator";
-import { pendingContents } from "../mocks/data-extra";
 import { NotificationsGateway } from "../notifications/notifications.gateway";
 import { PrismaService } from "../prisma/prisma.service";
+import { WorkflowsService } from "../workflows/workflows.service";
 
 class ValidateDto {
   @IsOptional() @IsString() @MaxLength(2000)
@@ -29,6 +31,7 @@ export class ContentsController {
   constructor(
     private readonly notifications: NotificationsGateway,
     private readonly prisma: PrismaService,
+    private readonly workflows: WorkflowsService,
   ) {}
 
   @Get()
@@ -65,9 +68,9 @@ export class ContentsController {
   }
 
   @Get("pending")
-  pending() {
-    // TODO Sprint 2 : remplacer par WorkflowInstance table avec Camunda 8
-    return { count: pendingContents.length, items: pendingContents };
+  async pending() {
+    const items = await this.workflows.listPending();
+    return { count: items.length, items };
   }
 
   @Get(":id")
@@ -78,6 +81,14 @@ export class ContentsController {
         channels: { select: { channel: true } },
         aiChecks: true,
         author: { select: { id: true, name: true, initials: true, color: true, role: true } },
+        workflowInstance: {
+          include: {
+            actions: {
+              include: { actor: { select: { id: true, name: true, role: true } } },
+              orderBy: { createdAt: "asc" },
+            },
+          },
+        },
       },
     });
     if (!c) throw new NotFoundException(`Content ${id} not found`);
@@ -86,54 +97,55 @@ export class ContentsController {
 
   @Roles("editor")
   @Post(":id/validate")
-  validate(@Param("id") id: string, @Body() body: ValidateDto) {
-    // TODO Sprint 2 : workflow Camunda 8 + ValidationAction signée
-    const pendingIdx = pendingContents.findIndex(
-      (p) => p.id === id || p.contentId === id,
+  async validate(@Param("id") id: string, @Body() body: ValidateDto, @Req() req: Request) {
+    if (!req.user) throw new Error("guard misconfigured");
+    const instance = await this.prisma.workflowInstance.findUnique({
+      where: { contentId: id },
+    });
+    if (!instance) throw new NotFoundException(`Workflow for content ${id} not found`);
+    const result = await this.workflows.advance(
+      instance.id,
+      req.user.sub,
+      req.user.role,
+      "approve",
+      body.comment,
+      req.ip,
+      req.headers["user-agent"],
     );
-    if (pendingIdx === -1) {
-      throw new NotFoundException(`Pending item ${id} not found`);
-    }
-    const removed = pendingContents.splice(pendingIdx, 1)[0]!;
-    const nextStep =
-      removed.step === "editor"
-        ? "chief"
-        : removed.step === "chief"
-          ? "direction"
-          : "published";
-
     this.notifications.broadcast("content.validated", {
-      id: removed.id,
-      contentId: removed.contentId,
-      title: removed.title,
-      previousStep: removed.step,
-      newStep: nextStep,
-      comment: body.comment ?? null,
+      contentId: id,
+      workflowInstanceId: instance.id,
+      newStep: result.toStep,
+      signatureHash: result.signatureHash,
       at: new Date().toISOString(),
     });
-
-    return { ok: true, validated: removed, newStep: nextStep };
+    return result;
   }
 
   @Roles("editor")
   @Post(":id/reject")
-  reject(@Param("id") id: string, @Body() body: RejectDto) {
-    const pendingIdx = pendingContents.findIndex(
-      (p) => p.id === id || p.contentId === id,
+  async reject(@Param("id") id: string, @Body() body: RejectDto, @Req() req: Request) {
+    if (!req.user) throw new Error("guard misconfigured");
+    const instance = await this.prisma.workflowInstance.findUnique({
+      where: { contentId: id },
+    });
+    if (!instance) throw new NotFoundException(`Workflow for content ${id} not found`);
+    const result = await this.workflows.advance(
+      instance.id,
+      req.user.sub,
+      req.user.role,
+      "reject",
+      body.reason,
+      req.ip,
+      req.headers["user-agent"],
     );
-    if (pendingIdx === -1) {
-      throw new NotFoundException(`Pending item ${id} not found`);
-    }
-    const removed = pendingContents.splice(pendingIdx, 1)[0]!;
-
     this.notifications.broadcast("content.rejected", {
-      id: removed.id,
-      contentId: removed.contentId,
-      title: removed.title,
+      contentId: id,
+      workflowInstanceId: instance.id,
       reason: body.reason ?? null,
+      signatureHash: result.signatureHash,
       at: new Date().toISOString(),
     });
-
-    return { ok: true, rejected: removed };
+    return result;
   }
 }
