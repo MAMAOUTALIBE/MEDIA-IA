@@ -1,38 +1,121 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# MEDIA-IA · CMR — Content Media Room
 
-## Getting Started
+> Plateforme intelligente de gestion et de diffusion de contenus média pour un diffuseur TV national.
 
-First, run the development server:
+[![CI](https://github.com/MAMAOUTALIBE/MEDIA-IA/actions/workflows/ci.yml/badge.svg)](https://github.com/MAMAOUTALIBE/MEDIA-IA/actions/workflows/ci.yml)
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+CMR centralise la chaîne éditoriale complète :
+- saisie multi-format (article, vidéo, audio, social),
+- workflow de validation à 4 niveaux (Journaliste → Rédacteur → Chef d'édition → Direction),
+- vérifications IA (7 contrôles + score global),
+- diffusion omnicanale (9 plateformes connectées),
+- DAM, analytics, audit immuable, app mobile journaliste.
+
+L'objectif **MEDIA-IA** est de proposer une alternative ouverte, IA-native et souveraine aux suites propriétaires (Arc XP, ENPS, Avid MediaCentral).
+
+---
+
+## 🚦 État actuel
+
+| Couche | Statut | Notes |
+|---|---|---|
+| **Frontend** (Next.js 16 + React 19 + Tailwind v4) | ✅ Production-ready | 17 routes, 14 modules, dark glassmorphism |
+| **Backend** (NestJS) | 🟡 Scaffold | `apps/api` health endpoint uniquement |
+| **Auth** | ❌ | Utilisateur courant hardcodé pour la démo |
+| **Persistance** | ❌ | Mocks Zustand + TanStack Query |
+| **Temps réel** | 🟡 Simulé | setInterval ; à remplacer par WebSocket |
+| **IA** | 🟡 Heuristiques | À remplacer par LLM + Whisper réels |
+| **Médias** | 🟡 Drag-drop visuel | À brancher S3 + FFmpeg |
+| **Tests** | ❌ | À ajouter (Vitest + Playwright + k6) |
+| **CI/CD** | 🟡 | Workflow GitHub Actions présent, à activer côté repo |
+
+Roadmap stratégique 12 mois : voir [`docs/ROADMAP.md`](./docs/ROADMAP.md).
+
+---
+
+## 🏗️ Architecture (monorepo Turborepo)
+
+```
+/
+├── apps/
+│   ├── web/          # Next.js 16 — front éditorial + dashboard
+│   └── api/          # NestJS 11 — API REST + health (à enrichir)
+├── packages/
+│   ├── types/        # types TypeScript partagés
+│   ├── db/           # schéma Prisma déclaratif
+│   └── config/       # configs ESLint / Prettier / TS partagées
+├── docs/             # ADRs, ROADMAP, runbooks
+└── .github/          # workflows CI, templates PR, CODEOWNERS
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Stack courante :
+- **Front** : Next.js 16 (App Router) · React 19 · TailwindCSS v4 · Shadcn (base-ui) · Framer Motion · TanStack Query · Zustand · Recharts · cmdk · Sonner
+- **Back** (en cours) : NestJS 11 · Prisma 6 · Postgres 16 · Redis 7 · Kafka / Redpanda (prévu)
+- **Orchestration** : Camunda 8 BPMN (prévu) · n8n (prévu)
+- **IA** : Claude Sonnet 4.6 + Whisper Large v3 + pgvector RAG (prévu)
+- **DevOps** : Docker Compose dev · Turborepo · pnpm workspaces · GitHub Actions
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+---
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## 🚀 Quickstart (poste développeur)
 
-## Learn More
+Prérequis : **Node 20+** et **pnpm 9+**. Sur macOS sans admin, installer via `fnm` :
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+curl -fsSL https://fnm.vercel.app/install | bash -s -- --skip-shell --force-install
+"$HOME/Library/Application Support/fnm/fnm" install --lts
+eval "$($HOME/Library/Application\ Support/fnm/fnm env --shell bash)"
+npm install -g pnpm@latest
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Cloner + installer :
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+git clone https://github.com/MAMAOUTALIBE/MEDIA-IA.git cmr
+cd cmr
+pnpm install
+```
 
-## Deploy on Vercel
+Lancer en dev :
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+pnpm --filter web dev          # http://localhost:3000  — front Next.js
+pnpm --filter api dev          # http://localhost:4000  — API NestJS
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
-# MEDIA-IA
-# MEDIA-IA
+Vérifier le projet entier :
+
+```bash
+pnpm typecheck                 # TypeScript sur tous les workspaces
+pnpm lint                      # ESLint
+pnpm build                     # Build prod tous workspaces
+```
+
+---
+
+## 📁 Structure clé du front (`apps/web/`)
+
+- `src/app/` — Next.js App Router (route group `(marketing)` pour la landing + `/dashboard/*` pour l'app + `/mobile/*` pour l'app journaliste)
+- `src/components/dashboard/` — composants spécifiques par module (shell, home, contenus, médias, live, audit, …)
+- `src/components/landing/` — sections landing
+- `src/components/ui/` — primitives (GlassCard, KpiCard, ChannelIcon, EmptyState, Logo, Sparkle, …) + composants shadcn générés
+- `src/lib/mocks/` — datasets typés (à remplacer par appels API)
+- `src/lib/queries/` — hooks TanStack Query (single point of swap mocks → API)
+- `src/lib/stores/` — stores Zustand (UI, drafts, mobile, pending)
+- `src/lib/ai-engine.ts` — moteur d'intents heuristique pour l'AI Assistant (à remplacer par LLM)
+
+---
+
+## 🤝 Contribuer
+
+Voir [`CONTRIBUTING.md`](./CONTRIBUTING.md) pour le workflow Git, les conventions de commit, et le process de revue.
+
+Décisions architecturales : voir [`docs/adr/`](./docs/adr/).
+
+---
+
+## 📝 Licence
+
+Propriétaire — © GMD 2025. Tous droits réservés.
+
+Contact : `contact@gmd2025.org`

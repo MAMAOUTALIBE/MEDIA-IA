@@ -1,0 +1,72 @@
+import type { WorkflowInstance } from "@/types";
+
+export const workflowInstances: WorkflowInstance[] = [
+  {
+    id: "w1",
+    contentTitle: "Interview — Ministre de la Culture",
+    contentType: "video",
+    currentStep: 3,
+    author: { name: "Aïssatou Diop", initials: "AD", color: "#22d3ee" },
+    pendingFor: "1h 12min",
+    channels: ["web", "youtube", "instagram"],
+    startedAt: "2026-05-26T09:20:00",
+  },
+  {
+    id: "w2",
+    contentTitle: "Reportage — Inondations dans le delta",
+    contentType: "video",
+    currentStep: 3,
+    author: { name: "Karim Benali", initials: "KB", color: "#10b981" },
+    pendingFor: "2h 04min",
+    channels: ["web", "mobile", "youtube"],
+    startedAt: "2026-05-26T08:30:00",
+  },
+  {
+    id: "w3",
+    contentTitle: "Documentaire — Terres d'Afrique",
+    contentType: "video",
+    currentStep: 4,
+    author: { name: "Aïssatou Diop", initials: "AD", color: "#22d3ee" },
+    pendingFor: "45min",
+    channels: ["smarttv", "web", "youtube"],
+    startedAt: "2026-05-26T07:45:00",
+  },
+  {
+    id: "w4",
+    contentTitle: "Tech — Lancement satellite national",
+    contentType: "video",
+    currentStep: 4,
+    author: { name: "Karim Benali", initials: "KB", color: "#10b981" },
+    pendingFor: "1h 38min",
+    channels: ["web", "youtube", "smarttv"],
+    startedAt: "2026-05-26T08:00:00",
+  },
+  {
+    id: "w5",
+    contentTitle: "Émission — Éducation et numérique",
+    contentType: "video",
+    currentStep: 2,
+    author: { name: "Mathieu Lefèvre", initials: "ML", color: "#60a5fa" },
+    pendingFor: "23min",
+    channels: ["web", "youtube", "facebook"],
+    startedAt: "2026-05-26T10:30:00",
+  },
+  {
+    id: "w6",
+    contentTitle: "Société — Logement étudiant",
+    contentType: "article",
+    currentStep: 3,
+    author: { name: "Omar Touré", initials: "OT", color: "#ec4899" },
+    pendingFor: "32min",
+    channels: ["web", "mobile", "facebook"],
+    startedAt: "2026-05-26T10:15:00",
+  },
+];
+
+export const workflowCountsByStep = {
+  1: 12,
+  2: 8,
+  3: 5,
+  4: 3,
+  5: 142,
+} as const;

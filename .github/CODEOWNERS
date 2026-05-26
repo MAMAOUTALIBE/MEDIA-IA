@@ -1,0 +1,33 @@
+# CODEOWNERS — MEDIA-IA / CMR
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+#
+# Définit les reviewers automatiquement assignés selon les paths modifiés.
+# Mettre à jour ces patterns au fur et à mesure de la constitution de l'équipe.
+
+# Par défaut : owner du repo
+*                                       @MAMAOUTALIBE
+
+# Frontend
+/apps/web/                              @MAMAOUTALIBE
+/apps/web/src/components/dashboard/     @MAMAOUTALIBE
+/apps/web/src/components/landing/       @MAMAOUTALIBE
+/apps/web/src/components/ui/            @MAMAOUTALIBE
+
+# Backend (futur)
+/apps/api/                              @MAMAOUTALIBE
+/packages/db/                           @MAMAOUTALIBE
+
+# Workers / IA (futur)
+/apps/workers/                          @MAMAOUTALIBE
+
+# Mobile (futur)
+/apps/mobile/                           @MAMAOUTALIBE
+
+# Documentation / ADR — review architecture obligatoire
+/docs/                                  @MAMAOUTALIBE
+/docs/adr/                              @MAMAOUTALIBE
+
+# CI/CD & gouvernance
+/.github/                               @MAMAOUTALIBE
+/turbo.json                             @MAMAOUTALIBE
+/pnpm-workspace.yaml                    @MAMAOUTALIBE
