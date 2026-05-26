@@ -10,7 +10,14 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar />
-        <main className="flex-1 px-4 py-6 lg:px-8 lg:py-8">{children}</main>
+        <main
+          id="main-content"
+          tabIndex={-1}
+          aria-label="Contenu principal du dashboard"
+          className="flex-1 px-4 py-6 lg:px-8 lg:py-8 focus:outline-none"
+        >
+          {children}
+        </main>
       </div>
       <CommandPalette />
       <AIAssistant />

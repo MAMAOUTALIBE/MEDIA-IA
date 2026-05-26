@@ -21,8 +21,11 @@ export function NavItem({
   return (
     <Link
       href={item.href}
+      aria-current={isActive ? "page" : undefined}
+      aria-label={collapsed ? item.label : undefined}
       className={cn(
         "group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-violet focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar",
         isActive
           ? "bg-gradient-to-r from-accent-blue/[0.12] via-accent-violet/[0.10] to-transparent text-text-primary"
           : "text-text-secondary hover:bg-white/[0.04] hover:text-text-primary",
