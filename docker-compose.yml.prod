@@ -1,0 +1,139 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cmr-pg
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cmr}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: ${POSTGRES_DB:-cmr_dev}
+    volumes:
+      - cmr-pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cmr} -d ${POSTGRES_DB:-cmr_dev}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: cmr-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - cmr-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    container_name: cmr-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-cmr-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-cmr-minio-changeme}
+    volumes:
+      - cmr-minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: infra/api.Dockerfile
+    container_name: cmr-api
+    restart: unless-stopped
+    profiles: ["app"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      HOST: 0.0.0.0
+      DATABASE_URL: postgresql://${POSTGRES_USER:-cmr}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/${POSTGRES_DB:-cmr_dev}?schema=public
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN_SECONDS: ${JWT_EXPIRES_IN_SECONDS:-28800}
+      CORS_ORIGIN: ${CORS_ORIGIN:-https://cmr.gmd2025.org}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - /opt/cmr/patches/instrument-stub.js:/app/apps/api/dist/instrument.js:ro
+
+  web:
+    build:
+      context: .
+      dockerfile: infra/web.Dockerfile
+    container_name: cmr-web
+    restart: unless-stopped
+    profiles: ["app"]
+    depends_on:
+      - api
+    environment:
+      NODE_ENV: production
+      HOSTNAME: "0.0.0.0"
+      PORT: "3000"
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.cmr.gmd2025.org/api}
+      NEXT_PUBLIC_SOCKET_URL: ${NEXT_PUBLIC_SOCKET_URL:-https://api.cmr.gmd2025.org}
+
+  proxy-api:
+    image: nginx:alpine
+    container_name: cmr-proxy-api
+    restart: unless-stopped
+    profiles: ["app"]
+    depends_on:
+      - api
+    volumes:
+      - ./infra/nginx-proxy/api.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - default
+      - traefik
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik"
+      - "traefik.http.routers.proxyapi.rule=Host(`api.cmr.gmd2025.org`)"
+      - "traefik.http.routers.proxyapi.entrypoints=websecure"
+      - "traefik.http.routers.proxyapi.tls=true"
+      - "traefik.http.routers.proxyapi.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.proxyapi.service=proxyapi-svc"
+      - "traefik.http.services.proxyapi-svc.loadbalancer.server.port=80"
+
+  proxy-web:
+    image: nginx:alpine
+    container_name: cmr-proxy-web
+    restart: unless-stopped
+    profiles: ["app"]
+    depends_on:
+      - web
+    volumes:
+      - ./infra/nginx-proxy/web.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - default
+      - traefik
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik"
+      - "traefik.http.routers.proxyweb.rule=Host(`cmr.gmd2025.org`)"
+      - "traefik.http.routers.proxyweb.entrypoints=websecure"
+      - "traefik.http.routers.proxyweb.tls=true"
+      - "traefik.http.routers.proxyweb.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.proxyweb.service=proxyweb-svc"
+      - "traefik.http.services.proxyweb-svc.loadbalancer.server.port=80"
+
+volumes:
+  cmr-pg-data:
+  cmr-redis-data:
+  cmr-minio-data:
+
+networks:
+  traefik:
+    external: true
+    name: traefik
