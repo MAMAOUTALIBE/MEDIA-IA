@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import request from "supertest";
 import { hash as argon2Hash } from "@node-rs/argon2";
 import { PrismaClient } from "@prisma/client";
+import { createHmac } from "node:crypto";
 
 /**
  * Tests d'API en boîte noire contre l'API NestJS qui tourne déjà
@@ -17,14 +18,51 @@ import { PrismaClient } from "@prisma/client";
 
 const API = process.env.API_BASE_URL ?? "http://localhost:4000";
 const TEST_PWD = "Sup3rTest-Pwd!";
+const JWT_SECRET =
+  process.env.JWT_SECRET ??
+  "dev-only-secret-replace-in-env-min-64-chars-aaaaaaaaaaaaaaaaaaaaaaaa";
 
 // HTTP black-box spec: the test user must exist in the same DB the live API uses.
 // Live API reads DATABASE_URL (cmr_dev) — not TEST_DATABASE_URL.
-const LIVE_API_DB_URL = process.env.DATABASE_URL!;
+const LIVE_API_DB_URL = process.env.DATABASE_URL;
+// Opt-in: black-box tests require a live API on API_BASE_URL with matching
+// JWT_SECRET. Run with `API_E2E=1 pnpm test` after `pnpm --filter @cmr/api dev`.
+const HAS_REQUIREMENTS = Boolean(LIVE_API_DB_URL) && process.env.API_E2E === "1";
 
-describe("AuthController (HTTP)", () => {
+function base64url(value: string) {
+  return Buffer.from(value).toString("base64url");
+}
+
+function signJwt(payload: Record<string, unknown>) {
+  const now = Math.floor(Date.now() / 1000);
+  const header = { alg: "HS512", typ: "JWT" };
+  const body = { ...payload, iat: now, exp: now + 3600 };
+  const data = `${base64url(JSON.stringify(header))}.${base64url(JSON.stringify(body))}`;
+  const signature = createHmac("sha512", JWT_SECRET).update(data).digest("base64url");
+  return `${data}.${signature}`;
+}
+
+describe.skipIf(!HAS_REQUIREMENTS)("AuthController (HTTP)", () => {
   let prisma: PrismaClient;
   let adminToken: string;
+  const journalistToken = signJwt({
+    sub: "ctl-journalist",
+    email: "ctl.journalist@cmr.tv",
+    role: "journalist",
+    name: "Ctl Journalist",
+  });
+  const chiefToken = signJwt({
+    sub: "ctl-chief",
+    email: "ctl.chief@cmr.tv",
+    role: "chief",
+    name: "Ctl Chief",
+  });
+  const communityManagerToken = signJwt({
+    sub: "ctl-cm",
+    email: "ctl.cm@cmr.tv",
+    role: "community_manager",
+    name: "Ctl CM",
+  });
 
   beforeAll(async () => {
     prisma = new PrismaClient({ datasources: { db: { url: LIVE_API_DB_URL } } });
@@ -135,9 +173,51 @@ describe("AuthController (HTTP)", () => {
     });
 
     it("403 on /api/audit with forged journalist role token", async () => {
-      // create a journalist-role token from the JWT_SECRET if available — fallback skip
-      const res = await request(API).get("/api/audit"); // no token at all
-      expect(res.status).toBe(401);
+      const res = await request(API)
+        .get("/api/audit")
+        .set("Authorization", `Bearer ${journalistToken}`);
+      expect(res.status).toBe(403);
+    });
+
+    it("403 on admin-only users endpoint as journalist", async () => {
+      const res = await request(API)
+        .get("/api/users")
+        .set("Authorization", `Bearer ${journalistToken}`);
+      expect(res.status).toBe(403);
+    });
+
+    it("403 on admin-only automations endpoint as chief", async () => {
+      const res = await request(API)
+        .get("/api/automations")
+        .set("Authorization", `Bearer ${chiefToken}`);
+      expect(res.status).toBe(403);
+    });
+
+    it("403 on workflows endpoint as journalist", async () => {
+      const res = await request(API)
+        .get("/api/workflows")
+        .set("Authorization", `Bearer ${journalistToken}`);
+      expect(res.status).toBe(403);
+    });
+
+    it("403 on media upload presign as journalist", async () => {
+      const res = await request(API)
+        .post("/api/media/upload/presign")
+        .set("Authorization", `Bearer ${journalistToken}`)
+        .send({ contentType: "image/jpeg", sizeBytes: 1024, extension: "jpg" });
+      expect(res.status).toBe(403);
+    });
+
+    it("200 on analytics and diffusion for community manager", async () => {
+      const analytics = await request(API)
+        .get("/api/analytics/deep")
+        .set("Authorization", `Bearer ${communityManagerToken}`);
+      expect(analytics.status).toBe(200);
+
+      const diffusion = await request(API)
+        .get("/api/diffusion/matrix")
+        .set("Authorization", `Bearer ${communityManagerToken}`);
+      expect(diffusion.status).toBe(200);
     });
   });
 });

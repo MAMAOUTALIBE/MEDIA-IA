@@ -1,3 +1,11 @@
+// Load root monorepo .env first so it overrides anything inherited from the
+// parent shell. Without override, a stale shell-level CORS_ORIGIN or
+// NEXT_PUBLIC_* sticks even when .env on disk is updated.
+import { config as loadEnv } from "dotenv";
+import { resolve as resolvePath } from "node:path";
+loadEnv({ path: resolvePath(__dirname, "../../../.env"), override: true });
+loadEnv({ path: resolvePath(__dirname, "../.env"), override: true });
+
 import "./instrument"; // MUST be first — Sentry instrumentation (ADR-006)
 import "reflect-metadata";
 import { ValidationPipe } from "@nestjs/common";
@@ -16,25 +24,62 @@ async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: true });
   app.useLogger(app.get(Logger));
 
-  // Security headers (ADR-006)
+  // Graceful shutdown — wires SIGTERM/SIGINT to NestJS onModuleDestroy + Prisma
+  // disconnect, closes the HTTP listener, and drains in-flight requests so
+  // Kubernetes can roll pods without dropping connections.
+  app.enableShutdownHooks();
+
+  // Security headers (ADR-006) — tightened CSP + cross-origin isolation in prod
+  const isProd = process.env.NODE_ENV === "production";
   app.use(
     helmet({
-      contentSecurityPolicy: process.env.NODE_ENV === "production",
+      contentSecurityPolicy: isProd
+        ? {
+            useDefaults: true,
+            directives: {
+              "default-src": ["'self'"],
+              "base-uri": ["'self'"],
+              "object-src": ["'none'"],
+              "frame-ancestors": ["'none'"],
+              "img-src": ["'self'", "data:", "blob:", "https:"],
+              "media-src": ["'self'", "blob:"],
+              "connect-src": ["'self'", "https:", "wss:"],
+              "script-src": ["'self'"],
+              "style-src": ["'self'", "'unsafe-inline'"],
+              "upgrade-insecure-requests": [],
+            },
+          }
+        : false,
       crossOriginEmbedderPolicy: false,
-      hsts: process.env.NODE_ENV === "production",
+      crossOriginOpenerPolicy: { policy: "same-origin" },
+      crossOriginResourcePolicy: { policy: "same-site" },
+      referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+      hsts: isProd ? { maxAge: 31536000, includeSubDomains: true, preload: true } : false,
     }),
   );
 
   // Behind reverse proxy in prod
   app.set("trust proxy", 1);
+  app.disable("x-powered-by");
 
   // Sprint 1: cookie-parser for refresh + access cookies (HttpOnly)
   app.use(cookieParser());
 
+  // CORS allow-list — exact origin match, no wildcards in prod
+  const corsAllowList = (process.env.CORS_ORIGIN ?? "http://localhost:3000")
+    .split(",")
+    .map((o) => o.trim())
+    .filter(Boolean);
   app.enableCors({
-    origin: (process.env.CORS_ORIGIN ?? "http://localhost:3000").split(","),
+    origin: (origin, cb) => {
+      // Same-origin / curl / server-to-server (no Origin header) → allow
+      if (!origin) return cb(null, true);
+      if (corsAllowList.includes(origin)) return cb(null, true);
+      return cb(new Error(`CORS: origin '${origin}' not allowed`), false);
+    },
     credentials: true,
     methods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+    exposedHeaders: ["X-Request-Id"],
     maxAge: 3600,
   });
   app.setGlobalPrefix("api");
@@ -89,14 +134,18 @@ async function bootstrap() {
   });
 
   await app.listen(PORT, HOST);
-  // eslint-disable-next-line no-console
   console.log(`✓ CMR API listening on http://${HOST}:${PORT}/api`);
-  // eslint-disable-next-line no-console
   console.log(`✓ OpenAPI docs : http://${HOST}:${PORT}/api/docs`);
 }
 
+// Last-resort exit on unhandled errors — Sentry already captures via instrument.ts,
+// but unhandled rejections in async hooks must crash the process so K8s can restart.
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled rejection — exiting:", reason);
+  process.exit(1);
+});
+
 bootstrap().catch((err) => {
-  // eslint-disable-next-line no-console
   console.error("Fatal bootstrap error:", err);
   process.exit(1);
 });

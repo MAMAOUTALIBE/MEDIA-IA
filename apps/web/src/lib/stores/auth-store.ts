@@ -2,7 +2,13 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { postApi, setAuthToken } from "@/lib/api-client";
+import {
+  getApi,
+  onAuthTokenChange,
+  postApi,
+  refreshAuthToken,
+  setAuthToken,
+} from "@/lib/api-client";
 
 export interface AuthUser {
   id: string;
@@ -14,13 +20,30 @@ export interface AuthUser {
   color: string;
 }
 
+// Decode the `exp` claim from a JWT without verifying the signature. Used to
+// short-circuit /auth/me round-trips when we already know the token is good.
+// Treats unparseable / signature-less tokens as expired (forces re-fetch).
+function isTokenExpired(token: string): boolean {
+  try {
+    const [, payload] = token.split(".");
+    if (!payload) return true;
+    const json = JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/")));
+    if (typeof json?.exp !== "number") return true;
+    return Date.now() / 1000 >= json.exp - 30; // 30s safety margin
+  } catch {
+    return true;
+  }
+}
+
 interface AuthState {
   user: AuthUser | null;
   token: string | null;
+  hydrated: boolean;
   loading: boolean;
   error: string | null;
+  bootstrap: () => Promise<void>;
   login: (email: string, password: string) => Promise<boolean>;
-  logout: () => void;
+  logout: () => Promise<void>;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -28,17 +51,48 @@ export const useAuthStore = create<AuthState>()(
     (set) => ({
       user: null,
       token: null,
+      hydrated: false,
       loading: false,
       error: null,
+      bootstrap: async () => {
+        const state = useAuthStore.getState();
+        let token = state.token;
+        if (!token) {
+          token = await refreshAuthToken();
+          if (!token) {
+            setAuthToken(null);
+            set({ hydrated: true });
+            return;
+          }
+        }
+        setAuthToken(token);
+        // Fast path: if the token isn't obviously expired and we still hold a
+        // persisted user, trust it and skip /auth/me. Saves one round-trip per
+        // page nav and avoids burning through the throttle bucket when users
+        // page-hop quickly. /auth/me still runs on cold start (no user yet).
+        if (state.user && !isTokenExpired(token)) {
+          set({ hydrated: true, error: null });
+          return;
+        }
+        try {
+          const user = await getApi<AuthUser>("auth/me");
+          set({ user, hydrated: true, error: null });
+        } catch {
+          setAuthToken(null);
+          set({ user: null, token: null, hydrated: true });
+        }
+      },
       login: async (email, password) => {
         set({ loading: true, error: null });
         try {
-          const r = await postApi<{ token: string; user: AuthUser }>("auth/login", {
-            email,
-            password,
-          });
+          const r = await postApi<{ token: string; user: AuthUser }>(
+            "auth/login",
+            { email, password },
+            "POST",
+            10_000,
+          );
           setAuthToken(r.token);
-          set({ user: r.user, token: r.token, loading: false, error: null });
+          set({ user: r.user, token: r.token, hydrated: true, loading: false, error: null });
           return true;
         } catch (e) {
           const msg = e instanceof Error ? e.message : "Login failed";
@@ -46,9 +100,14 @@ export const useAuthStore = create<AuthState>()(
           return false;
         }
       },
-      logout: () => {
+      logout: async () => {
+        try {
+          await postApi("auth/logout", undefined, "POST");
+        } catch {
+          // Local logout must still clear the session if the API is unreachable.
+        }
         setAuthToken(null);
-        set({ user: null, token: null, error: null });
+        set({ user: null, token: null, hydrated: true, error: null });
       },
     }),
     {
@@ -61,3 +120,11 @@ export const useAuthStore = create<AuthState>()(
     },
   ),
 );
+
+onAuthTokenChange((token) => {
+  if (token) {
+    useAuthStore.setState({ token, hydrated: true });
+  } else {
+    useAuthStore.setState({ user: null, token: null });
+  }
+});

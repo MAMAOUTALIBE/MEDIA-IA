@@ -1,12 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { useAutomations } from "@/lib/queries";
+import { useAutomations, useToggleAutomation } from "@/lib/queries";
+import { API_ENABLED } from "@/lib/api-client";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Switch } from "@/components/ui/switch";
+import { ApiErrorState } from "@/components/ui/api-error-state";
+import { PermissionGate } from "@/components/auth/permission-gate";
 import { Bell, Calendar, Globe, Link2, Video, Zap, Plus } from "lucide-react";
 import type { AutomationRule } from "@/types";
 import { formatRelative, formatNumber } from "@/lib/format";
+import { toast } from "sonner";
 
 const icons = {
   zap: Zap,
@@ -18,11 +22,41 @@ const icons = {
 };
 
 export default function AutomatisationsPage() {
-  const { data } = useAutomations();
+  return (
+    <PermissionGate permission="view.automations">
+      <AutomatisationsContent />
+    </PermissionGate>
+  );
+}
+
+function AutomatisationsContent() {
+  const { data, error, isError, refetch } = useAutomations();
+  const toggleAutomation = useToggleAutomation();
   const [overrides, setOverrides] = useState<Record<string, boolean>>({});
 
   function isActive(rule: AutomationRule) {
     return overrides[rule.id] ?? rule.active;
+  }
+
+  function handleToggle(rule: AutomationRule, active: boolean) {
+    setOverrides((prev) => ({ ...prev, [rule.id]: active }));
+    if (!API_ENABLED) return;
+    toggleAutomation.mutate(
+      { id: rule.id, active },
+      {
+        onSuccess: () => {
+          toast.success(active ? "Automatisation activée" : "Automatisation désactivée", {
+            description: rule.name,
+          });
+        },
+        onError: (err) => {
+          setOverrides((prev) => ({ ...prev, [rule.id]: rule.active }));
+          toast.error("Impossible de modifier la règle", {
+            description: err instanceof Error ? err.message.slice(0, 120) : rule.name,
+          });
+        },
+      },
+    );
   }
 
   return (
@@ -43,6 +77,11 @@ export default function AutomatisationsPage() {
         </button>
       </div>
 
+      {isError ? (
+        <GlassCard>
+          <ApiErrorState error={error} onRetry={() => void refetch()} />
+        </GlassCard>
+      ) : (
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         {(data ?? []).map((rule) => {
           const Icon = icons[rule.icon] ?? Zap;
@@ -58,9 +97,8 @@ export default function AutomatisationsPage() {
                 </span>
                 <Switch
                   checked={active}
-                  onCheckedChange={(v) =>
-                    setOverrides((prev) => ({ ...prev, [rule.id]: v }))
-                  }
+                  disabled={toggleAutomation.isPending && toggleAutomation.variables?.id === rule.id}
+                  onCheckedChange={(v) => handleToggle(rule, v)}
                 />
               </div>
               <div>
@@ -87,6 +125,7 @@ export default function AutomatisationsPage() {
           );
         })}
       </div>
+      )}
     </div>
   );
 }

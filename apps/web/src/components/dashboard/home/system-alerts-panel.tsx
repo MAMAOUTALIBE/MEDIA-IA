@@ -2,6 +2,7 @@
 
 import { GlassCard } from "@/components/ui/glass-card";
 import { useSystemAlerts } from "@/lib/queries";
+import { ApiErrorState } from "@/components/ui/api-error-state";
 import { AlertCircle, AlertTriangle, CheckCircle2, Info } from "lucide-react";
 import type { AlertSeverity } from "@/types";
 import { formatRelative } from "@/lib/format";
@@ -15,7 +16,7 @@ const meta: Record<AlertSeverity, { icon: React.ComponentType<{ size?: number; c
 };
 
 export function SystemAlertsPanel() {
-  const { data } = useSystemAlerts();
+  const { data, error, isError, refetch } = useSystemAlerts();
   const alerts = data ?? [];
   return (
     <GlassCard className="p-5">
@@ -28,6 +29,9 @@ export function SystemAlertsPanel() {
           {alerts.length} actives
         </span>
       </div>
+      {isError ? (
+        <ApiErrorState error={error} onRetry={() => void refetch()} />
+      ) : (
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         {alerts.map((a) => {
           const m = meta[a.severity];
@@ -54,6 +58,7 @@ export function SystemAlertsPanel() {
           );
         })}
       </div>
+      )}
     </GlassCard>
   );
 }

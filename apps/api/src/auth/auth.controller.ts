@@ -12,9 +12,28 @@ import { Throttle } from "@nestjs/throttler";
 import type { Request, Response } from "express";
 import { AuthService } from "./auth.service";
 import { MfaService } from "./mfa.service";
+import { IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min } from "class-validator";
+import { Roles } from "./roles.decorator";
 import { LoginDto } from "./dto/login.dto";
 import { MfaActivateDto, MfaVerifyDto, RefreshDto } from "./dto/mfa.dto";
 import { Public } from "./public.decorator";
+
+class IssueServiceTokenDto {
+  // Human-readable label baked into the JWT `sub`/`name` for audit lookup.
+  // Limited charset so it can land in URLs/log files without escaping.
+  @IsString()
+  @Matches(/^[a-zA-Z0-9:_-]+$/, {
+    message: "label must match /^[a-zA-Z0-9:_-]+$/",
+  })
+  @MaxLength(64)
+  label!: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(60) // ≥ 1 min so it's worth using
+  @Max(24 * 60 * 60) // cap at 24h (matches service.issueServiceToken)
+  ttlSeconds?: number;
+}
 
 const REFRESH_COOKIE = "cmr_rt";
 const ACCESS_COOKIE = "cmr_at"; // optional: parallel to Bearer for browser clients
@@ -112,6 +131,25 @@ export class AuthController {
     res.clearCookie(REFRESH_COOKIE, { ...refreshCookieOpts(), maxAge: 0 });
     res.clearCookie(ACCESS_COOKIE, { ...accessCookieOpts(), maxAge: 0 });
     return { ok: true };
+  }
+
+  @Roles("admin")
+  @Post("service-token")
+  @ApiOperation({
+    summary: "Mint a short-lived JWT for a non-human caller (n8n, GitHub Actions).",
+  })
+  async mintServiceToken(
+    @Body() body: IssueServiceTokenDto,
+    @Req() req: Request,
+  ) {
+    if (!req.user) throw new UnauthorizedException();
+    return this.auth.issueServiceToken({
+      issuedByUserId: req.user.sub,
+      label: body.label,
+      ttlSeconds: body.ttlSeconds,
+      ip: req.ip,
+      userAgent: req.headers["user-agent"],
+    });
   }
 
   @Get("me")

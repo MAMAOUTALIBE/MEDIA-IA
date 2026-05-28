@@ -22,7 +22,7 @@ export function LoginDialog({
   const loading = useAuthStore((s) => s.loading);
   const error = useAuthStore((s) => s.error);
   const [email, setEmail] = useState("e.rousseau@cmr.tv");
-  const [password, setPassword] = useState("cmr2025");
+  const [password, setPassword] = useState("cmr2025!Dev");
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -41,17 +41,21 @@ export function LoginDialog({
             <div>
               <DialogTitle className="text-base font-bold text-text-primary">Connexion CMR</DialogTitle>
               <DialogDescription className="!mt-0.5 text-[11px] !text-text-secondary">
-                Démo · JWT 8h · mot de passe partagé `cmr2025`
+                Session sécurisée · JWT 8h · refresh cookie HTTP-only
               </DialogDescription>
             </div>
           </div>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4 p-5">
           <div>
-            <label className="block text-[10px] font-semibold uppercase tracking-wider text-text-muted">
+            <label
+              htmlFor="login-email"
+              className="block text-[10px] font-semibold uppercase tracking-wider text-text-muted"
+            >
               Email
             </label>
             <input
+              id="login-email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -61,10 +65,14 @@ export function LoginDialog({
             />
           </div>
           <div>
-            <label className="block text-[10px] font-semibold uppercase tracking-wider text-text-muted">
+            <label
+              htmlFor="login-password"
+              className="block text-[10px] font-semibold uppercase tracking-wider text-text-muted"
+            >
               Mot de passe
             </label>
             <input
+              id="login-password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -98,7 +106,7 @@ export function LoginDialog({
           <p className="text-center text-[10px] text-text-muted">
             Comptes test : <code className="text-text-secondary">e.rousseau@cmr.tv</code>,{" "}
             <code className="text-text-secondary">v.moreau@cmr.tv</code>, ou tout email de la
-            table users — mot de passe <code className="text-text-secondary">cmr2025</code>.
+            table users — mot de passe <code className="text-text-secondary">cmr2025!Dev</code>.
           </p>
         </form>
       </DialogContent>

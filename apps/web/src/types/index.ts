@@ -197,7 +197,12 @@ export type AuditAction =
   | "disable_automation"
   | "export_data"
   | "settings_change"
-  | "permission_change";
+  | "permission_change"
+  // Sprint 9 — n8n + GDPR
+  | "automation_run"
+  | "gdpr_delete_request"
+  | "gdpr_delete_executed"
+  | "service_token_issued";
 
 export type AuditSeverity = "info" | "warning" | "critical";
 

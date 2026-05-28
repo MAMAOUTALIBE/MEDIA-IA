@@ -43,57 +43,86 @@ const features = [
 
 export function Hero() {
   return (
-    <section id="solution" className="relative mesh-bg overflow-hidden pb-20 pt-16">
+    <section id="solution" className="aurora-bg relative overflow-hidden pb-24 pt-20">
       <Sparkle count={50} seed={11} />
+      {/* Soft top-vignette to anchor the headline against the aurora. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/15 to-transparent"
+      />
       <Container className="relative">
-        <div className="grid gap-10 lg:grid-cols-[1.05fr_1fr] lg:items-center">
+        <div className="grid gap-12 lg:grid-cols-[1.05fr_1fr] lg:items-center">
           <FadeInOnScroll>
-            <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[11px] font-medium uppercase tracking-[0.18em] text-accent-violet backdrop-blur">
-              <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-accent-violet" />
+            <span className="inline-flex items-center gap-2.5 rounded-full border border-white/10 bg-white/[0.04] px-3.5 py-1.5 text-[11px] font-medium uppercase tracking-[0.18em] text-accent-violet shadow-[0_0_24px_-8px_rgba(139,92,246,0.6)] backdrop-blur">
+              <span className="pulse-dot text-accent-violet" />
               Plateforme nouvelle génération
+              <span className="text-text-muted">·</span>
+              <span className="text-text-secondary">v0.1 beta</span>
             </span>
-            <h1 className="mt-5 text-4xl font-bold leading-[1.05] tracking-tight text-text-primary sm:text-5xl lg:text-[3.4rem]">
+            <h1 className="mt-6 text-4xl font-bold leading-[1.02] tracking-[-0.02em] text-text-primary sm:text-5xl lg:text-[3.6rem]">
               La plateforme intelligente de{" "}
               <GradientText>gestion et de diffusion</GradientText>
               <br />
               de contenus média.
             </h1>
-            <p className="mt-5 max-w-xl text-base leading-relaxed text-text-secondary sm:text-lg">
+            <p className="mt-6 max-w-xl text-base leading-relaxed text-text-secondary sm:text-lg">
               CMR centralise toute la chaîne de production éditoriale et diffuse
               vos contenus sur tous les canaux digitaux — avec une IA native qui
               vérifie, valide et automatise à chaque étape.
             </p>
-            <div className="mt-7 flex flex-wrap items-center gap-3">
+            <div className="mt-8 flex flex-wrap items-center gap-3">
+              {/* Primary CTA — layered: solid gradient + outer glow + inner highlight + arrow nudge. */}
               <Link
                 href="/dashboard"
-                className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-accent-blue to-accent-violet px-5 py-3 text-sm font-semibold text-white shadow-glow-violet transition hover:opacity-95"
+                className="group relative inline-flex items-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-accent-blue to-accent-violet px-5 py-3 text-sm font-semibold text-white shadow-glow-violet transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_0_44px_-8px_rgba(139,92,246,0.8)] focus-visible:-translate-y-0.5"
               >
-                Découvrir le dashboard
-                <ArrowRight size={16} />
+                <span className="pointer-events-none absolute inset-0 bg-gradient-to-b from-white/[0.18] to-transparent opacity-0 transition-opacity duration-200 group-hover:opacity-100" />
+                <span className="relative">Découvrir le dashboard</span>
+                <ArrowRight
+                  size={16}
+                  className="relative transition-transform duration-200 group-hover:translate-x-0.5"
+                  aria-hidden
+                />
               </Link>
+              {/* Secondary — ghost glass with subtle play accent. */}
               <button
                 type="button"
-                className="inline-flex items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.03] px-5 py-3 text-sm font-medium text-text-primary backdrop-blur transition hover:bg-white/[0.06]"
+                className="group inline-flex items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.03] px-5 py-3 text-sm font-medium text-text-primary backdrop-blur transition-all duration-200 hover:border-white/[0.16] hover:bg-white/[0.06]"
               >
-                <Play size={14} />
-                Voir la démo (2 min)
+                <span className="grid h-5 w-5 place-items-center rounded-full bg-white/10 text-accent-violet ring-1 ring-white/15 transition group-hover:bg-accent-violet/30 group-hover:text-white">
+                  <Play size={9} fill="currentColor" aria-hidden />
+                </span>
+                Voir la démo
+                <span className="text-text-muted">2 min</span>
               </button>
             </div>
           </FadeInOnScroll>
 
           <FadeInOnScroll delay={0.15}>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:max-w-md">
-              {features.map((f) => {
+              {features.map((f, i) => {
                 const Icon = f.icon;
+                // Stagger the icon tints across the grid to break monotony.
+                const palette = [
+                  "from-accent-blue/20 to-accent-violet/10 text-accent-blue",
+                  "from-accent-violet/25 to-accent-cyan/10 text-accent-violet",
+                  "from-accent-cyan/25 to-accent-blue/10 text-accent-cyan",
+                  "from-accent-violet/20 to-accent-blue/10 text-accent-violet",
+                  "from-accent-blue/20 to-accent-cyan/10 text-accent-blue",
+                ];
                 return (
                   <div
                     key={f.title}
-                    className="glass rounded-2xl p-4 transition hover:bg-white/[0.06]"
+                    className="lift-on-hover group relative rounded-2xl border border-white/[0.06] bg-white/[0.03] p-4 backdrop-blur-xl"
                   >
-                    <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-accent-blue/15 to-accent-violet/15 text-accent-violet ring-1 ring-white/10">
-                      <Icon size={16} />
+                    <span
+                      className={`inline-flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br ${palette[i % palette.length]} ring-1 ring-white/10 transition-transform duration-200 group-hover:scale-110`}
+                    >
+                      <Icon size={16} aria-hidden />
                     </span>
-                    <p className="mt-3 text-sm font-semibold text-text-primary">{f.title}</p>
+                    <p className="mt-3 text-sm font-semibold tracking-tight text-text-primary">
+                      {f.title}
+                    </p>
                     <p className="mt-1 text-xs leading-relaxed text-text-secondary">
                       {f.description}
                     </p>

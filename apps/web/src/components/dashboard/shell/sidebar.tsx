@@ -8,11 +8,15 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { ChevronLeft, Menu, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
+import { canAccessRoute } from "@/lib/rbac";
+import { useEffectiveRole } from "@/lib/use-rbac";
 
 export function Sidebar() {
   const collapsed = useUIStore((s) => s.sidebarCollapsed);
   const toggle = useUIStore((s) => s.toggleSidebar);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const role = useEffectiveRole();
+  const visibleNavItems = navItems.filter((item) => canAccessRoute(role, item.href));
 
   return (
     <>
@@ -56,17 +60,25 @@ export function Sidebar() {
           </button>
         )}
         <nav className="flex-1 space-y-1 overflow-y-auto px-3 pb-4">
-          {navItems.map((item) => (
+          {visibleNavItems.map((item) => (
             <NavItem key={item.href} item={item} collapsed={collapsed} />
           ))}
         </nav>
         {!collapsed && (
           <div className="border-t border-white/[0.06] p-3">
-            <div className="rounded-xl bg-gradient-to-br from-accent-blue/10 via-accent-violet/10 to-transparent p-3 ring-1 ring-white/[0.06]">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-accent-violet">
-                Production
-              </p>
-              <p className="mt-0.5 text-xs text-text-secondary">
+            <div className="relative overflow-hidden rounded-xl border border-white/[0.06] bg-gradient-to-br from-accent-blue/10 via-accent-violet/10 to-transparent p-3">
+              {/* Soft top highlight — subtle inner light gives a sense of layer. */}
+              <span
+                aria-hidden
+                className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent"
+              />
+              <div className="flex items-center gap-2">
+                <span className="pulse-dot text-success" aria-hidden />
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-accent-violet">
+                  Production
+                </p>
+              </div>
+              <p className="mt-1 text-xs leading-relaxed text-text-secondary">
                 Bus Kafka stable · Camunda OK
               </p>
             </div>
@@ -91,7 +103,7 @@ export function Sidebar() {
             </button>
           </div>
           <nav className="space-y-1 px-3 pb-4">
-            {navItems.map((item) => (
+            {visibleNavItems.map((item) => (
               <div key={item.href} onClick={() => setMobileOpen(false)}>
                 <NavItem item={item} collapsed={false} />
               </div>

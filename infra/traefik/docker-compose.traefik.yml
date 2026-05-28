@@ -1,0 +1,78 @@
+# Traefik reverse-proxy with automatic Let's Encrypt SSL.
+#
+# Drops in alongside the main CMR docker-compose.yml. It joins the existing
+# `cmr_cmr-net` network so it can discover the API/web containers by their
+# Traefik labels.
+#
+# Run with:
+#   docker compose -f infra/traefik/docker-compose.traefik.yml up -d
+
+services:
+  traefik:
+    image: traefik:v3.5
+    container_name: cmr-traefik
+    restart: unless-stopped
+    command:
+      # Discover containers via Docker labels (don't expose by default — only
+      # those with `traefik.enable=true` get a route).
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=cmr_cmr-net
+
+      # Two entrypoints: HTTP (redirects) and HTTPS (real traffic)
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      # Universal HTTP → HTTPS redirect at the entrypoint level.
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.web.http.redirections.entrypoint.permanent=true
+
+      # Let's Encrypt — TLS-ALPN-01 challenge (works on port 443, no DNS dance)
+      - --certificatesresolvers.le.acme.tlschallenge=true
+      - --certificatesresolvers.le.acme.email=${LETSENCRYPT_EMAIL}
+      - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
+      # Uncomment to test against the staging CA first (avoids rate-limit lockout)
+      # - --certificatesresolvers.le.acme.caserver=https://acme-staging-v02.api.letsencrypt.org/directory
+
+      # Access logs in JSON for ingestion (Loki/ELK later)
+      - --accesslog=true
+      - --accesslog.format=json
+      - --accesslog.fields.headers.defaultmode=drop
+      - --accesslog.fields.headers.names.X-Request-Id=keep
+
+      # API/dashboard — keep DISABLED in prod. Enable via `--api.insecure=true`
+      # only behind a separate basic-auth route if you really need it.
+      - --api.dashboard=false
+      - --ping=true
+      - --log.level=INFO
+
+    ports:
+      - "80:80"
+      - "443:443"
+
+    volumes:
+      # Read-only access to the Docker socket — required for label discovery.
+      # NOTE: this gives traefik root-equivalent on the host. Compensate by
+      # NOT exposing the traefik dashboard publicly.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik-letsencrypt:/letsencrypt
+
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+    networks:
+      - cmr-net
+
+volumes:
+  traefik-letsencrypt:
+
+networks:
+  # IMPORTANT: this must match the network created by the main compose. After
+  # `docker compose up -d` once, the network is named `cmr_cmr-net` (folder + svc).
+  # Verify with: docker network ls
+  cmr-net:
+    external: true
+    name: cmr_cmr-net

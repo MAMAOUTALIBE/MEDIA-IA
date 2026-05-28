@@ -36,6 +36,7 @@ ENV NODE_ENV=production
 # Copy built artifacts only — no dev deps, no source
 COPY --from=build --chown=cmr:cmr /app/apps/api/dist ./apps/api/dist
 COPY --from=build --chown=cmr:cmr /app/apps/api/package.json ./apps/api/
+COPY --from=build --chown=cmr:cmr /app/apps/api/node_modules ./apps/api/node_modules
 COPY --from=build --chown=cmr:cmr /app/packages/db ./packages/db
 COPY --from=build --chown=cmr:cmr /app/node_modules ./node_modules
 COPY --from=build --chown=cmr:cmr /app/package.json ./

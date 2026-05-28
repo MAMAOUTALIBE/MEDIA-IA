@@ -34,15 +34,18 @@ enum Role {
   direction
   community_manager
   admin
+  // Sprint 9: non-human service caller (n8n workflows, GitHub Actions, cron).
+  // Distinct from admin so its capabilities can be scoped via @ExactRoles.
+  service_automation
 }
 
 model User {
-  id              String           @id @default(cuid())
-  email           String           @unique
+  id              String    @id @default(cuid())
+  email           String    @unique
   name            String
-  role            Role             @default(journalist)
+  role            Role      @default(journalist)
   team            String?
-  active          Boolean          @default(true)
+  active          Boolean   @default(true)
   initials        String
   color           String
   passwordHash    String?
@@ -50,38 +53,38 @@ model User {
   lastActiveAt    DateTime?
   // MFA TOTP (Sprint 1) — secret stored as base32 string, mfaEnabled true after first verify
   mfaSecret       String?
-  mfaEnabled      Boolean          @default(false)
-  mfaBackupCodes  String[]         @default([]) // Argon2id hashes of one-time backup codes
+  mfaEnabled      Boolean   @default(false)
+  mfaBackupCodes  String[]  @default([]) // Argon2id hashes of one-time backup codes
   mfaEnabledAt    DateTime?
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
   deletedAt       DateTime?
 
-  contents        Content[]        @relation("ContentAuthor")
-  workflows       WorkflowInstance[] @relation("WorkflowSubmittedBy")
-  auditEvents     AuditEvent[]
-  notifications   Notification[]
-  sessions        Session[]
-  mediaUploads    MediaAsset[]
-  comments        Comment[]
-  validations     ValidationAction[]
+  contents      Content[]          @relation("ContentAuthor")
+  workflows     WorkflowInstance[] @relation("WorkflowSubmittedBy")
+  auditEvents   AuditEvent[]
+  notifications Notification[]
+  sessions      Session[]
+  mediaUploads  MediaAsset[]
+  comments      Comment[]
+  validations   ValidationAction[]
 
   @@index([role])
   @@index([deletedAt])
 }
 
 model Session {
-  id              String   @id @default(cuid())
-  userId          String
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id               String    @id @default(cuid())
+  userId           String
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   // Sprint 1: opaque refresh-token (SHA-256 hashed before storage to avoid token leak)
-  refreshTokenHash String  @unique
-  ip              String?
-  userAgent       String?
-  expiresAt       DateTime
-  revokedAt       DateTime?
-  lastUsedAt      DateTime?
-  createdAt       DateTime @default(now())
+  refreshTokenHash String    @unique
+  ip               String?
+  userAgent        String?
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  lastUsedAt       DateTime?
+  createdAt        DateTime  @default(now())
 
   @@index([userId])
   @@index([expiresAt])
@@ -122,30 +125,32 @@ enum ChannelKey {
 }
 
 model Content {
-  id            String         @id @default(cuid())
-  title         String
-  body          String?
-  excerpt       String?
-  type          ContentType
-  status        ContentStatus  @default(draft)
-  authorId      String
-  author        User           @relation("ContentAuthor", fields: [authorId], references: [id])
-  thumbnailUrl  String?
-  scheduledAt   DateTime?
-  publishedAt   DateTime?
-  views         Int            @default(0)
-  engagement    Float          @default(0)
-  aiScore       Int?           // 0-100 global IA score
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  deletedAt     DateTime?
+  id           String        @id @default(cuid())
+  title        String
+  body         String?
+  excerpt      String?
+  type         ContentType
+  status       ContentStatus @default(draft)
+  authorId     String
+  author       User          @relation("ContentAuthor", fields: [authorId], references: [id])
+  thumbnailUrl String?
+  scheduledAt  DateTime?
+  publishedAt  DateTime?
+  views        Int           @default(0)
+  engagement   Float         @default(0)
+  aiScore      Int? // 0-100 global IA score
+  tags         String[]      @default([]) // n8n auto-tagging IA (Sprint 9)
+  summary      String? // n8n résumé court IA (Sprint 9)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  deletedAt    DateTime?
 
-  channels      ContentChannel[]
-  media         ContentMedia[]
+  channels         ContentChannel[]
+  media            ContentMedia[]
   workflowInstance WorkflowInstance?
-  comments      Comment[]
-  publications  Publication[]
-  aiChecks      AICheckResult[]
+  comments         Comment[]
+  publications     Publication[]
+  aiChecks         AICheckResult[]
 
   @@index([status])
   @@index([authorId])
@@ -153,6 +158,7 @@ model Content {
   @@index([scheduledAt])
   @@index([publishedAt])
   @@index([deletedAt])
+  @@index([tags], type: Gin)
 }
 
 model ContentChannel {
@@ -177,27 +183,27 @@ enum MediaType {
 }
 
 model MediaAsset {
-  id            String     @id @default(cuid())
+  id            String    @id @default(cuid())
   title         String
   type          MediaType
   url           String
   thumbnailUrl  String?
   durationSec   Int?
-  sizeBytes    BigInt
+  sizeBytes     BigInt
   width         Int?
   height        Int?
   mimeType      String?
   uploadedById  String
-  uploadedBy    User       @relation(fields: [uploadedById], references: [id])
+  uploadedBy    User      @relation(fields: [uploadedById], references: [id])
   tags          String[]
   altText       String?
   transcript    String?
   copyrightInfo String?
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
   deletedAt     DateTime?
 
-  contents      ContentMedia[]
+  contents ContentMedia[]
 
   @@index([type])
   @@index([uploadedById])
@@ -229,34 +235,34 @@ enum WorkflowStep {
 }
 
 model WorkflowInstance {
-  id              String       @id @default(cuid())
-  contentId       String       @unique
-  content         Content      @relation(fields: [contentId], references: [id], onDelete: Cascade)
-  currentStep     WorkflowStep @default(submitted)
-  submittedById   String
-  submittedBy     User         @relation("WorkflowSubmittedBy", fields: [submittedById], references: [id])
-  startedAt       DateTime     @default(now())
-  completedAt     DateTime?
-  zeebeProcessId  String?
+  id             String       @id @default(cuid())
+  contentId      String       @unique
+  content        Content      @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  currentStep    WorkflowStep @default(submitted)
+  submittedById  String
+  submittedBy    User         @relation("WorkflowSubmittedBy", fields: [submittedById], references: [id])
+  startedAt      DateTime     @default(now())
+  completedAt    DateTime?
+  zeebeProcessId String?
 
-  actions         ValidationAction[]
+  actions ValidationAction[]
 
   @@index([currentStep])
   @@index([completedAt])
 }
 
 model ValidationAction {
-  id             String           @id @default(cuid())
-  instanceId     String
-  instance       WorkflowInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
-  actorId        String
-  actor          User             @relation(fields: [actorId], references: [id])
-  fromStep       WorkflowStep
-  toStep         WorkflowStep
-  decision       String           // "approve" | "reject" | "request_changes"
-  comment        String?
-  signatureHash  String           // SHA-256 of decision payload for immutability
-  createdAt      DateTime         @default(now())
+  id            String           @id @default(cuid())
+  instanceId    String
+  instance      WorkflowInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  actorId       String
+  actor         User             @relation(fields: [actorId], references: [id])
+  fromStep      WorkflowStep
+  toStep        WorkflowStep
+  decision      String // "approve" | "reject" | "request_changes"
+  comment       String?
+  signatureHash String // SHA-256 of decision payload for immutability
+  createdAt     DateTime         @default(now())
 
   @@index([instanceId])
   @@index([actorId])
@@ -282,12 +288,12 @@ model Publication {
   status        PublicationStatus @default(scheduled)
   scheduledAt   DateTime
   publishedAt   DateTime?
-  externalId    String?           // YouTube video ID, FB post ID, etc.
+  externalId    String? // YouTube video ID, FB post ID, etc.
   externalUrl   String?
-  formatVariant String?           // "1080p H.264", "vertical 9:16", etc.
+  formatVariant String? // "1080p H.264", "vertical 9:16", etc.
   errorMessage  String?
   retryCount    Int               @default(0)
-  metrics       Json?             // engagement, views, likes
+  metrics       Json? // engagement, views, likes
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
 
@@ -322,10 +328,10 @@ model AICheckResult {
   content   Content       @relation(fields: [contentId], references: [id], onDelete: Cascade)
   type      AICheckType
   status    AICheckStatus
-  score     Int           // 0-100
+  score     Int // 0-100
   message   String?
   rawOutput Json?
-  modelUsed String?       // "gpt-4.1", "claude-sonnet-4-6", etc.
+  modelUsed String? // "gpt-4.1", "claude-sonnet-4-6", etc.
   createdAt DateTime      @default(now())
 
   @@unique([contentId, type])
@@ -337,15 +343,15 @@ model AICheckResult {
 // ============================================================
 
 model Comment {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   contentId String
-  content   Content  @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  content   Content   @relation(fields: [contentId], references: [id], onDelete: Cascade)
   authorId  String
-  author    User     @relation(fields: [authorId], references: [id])
+  author    User      @relation(fields: [authorId], references: [id])
   body      String
   mentions  String[] // user IDs mentioned
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
   @@index([contentId])
@@ -357,17 +363,17 @@ model Comment {
 // ============================================================
 
 model AutomationRule {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   name        String
   description String
-  trigger     String   // event name (e.g., "content.published")
-  action      String   // n8n workflow name or webhook URL
-  active      Boolean  @default(true)
-  config      Json     @default("{}")
-  runs        Int      @default(0)
+  trigger     String // event name (e.g., "content.published")
+  action      String // n8n workflow name or webhook URL
+  active      Boolean   @default(true)
+  config      Json      @default("{}")
+  runs        Int       @default(0)
   lastRunAt   DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   @@index([active])
   @@index([trigger])
@@ -422,6 +428,11 @@ enum AuditAction {
   export_data
   settings_change
   permission_change
+  // Sprint 9 additions
+  automation_run
+  gdpr_delete_request
+  gdpr_delete_executed
+  service_token_issued
 }
 
 enum AuditSeverity {
@@ -431,18 +442,18 @@ enum AuditSeverity {
 }
 
 model AuditEvent {
-  id            String        @id @default(cuid())
-  at            DateTime      @default(now())
-  actorId       String?
-  actor         User?         @relation(fields: [actorId], references: [id], onDelete: SetNull)
-  action        AuditAction
-  target        String
-  severity      AuditSeverity
-  status        String        // "success" | "failure"
-  ip            String?
-  userAgent     String?
-  metadata      Json?
-  checksumSha256 String       // computed at insert, immutable
+  id             String        @id @default(cuid())
+  at             DateTime      @default(now())
+  actorId        String?
+  actor          User?         @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  action         AuditAction
+  target         String
+  severity       AuditSeverity
+  status         String // "success" | "failure"
+  ip             String?
+  userAgent      String?
+  metadata       Json?
+  checksumSha256 String // computed at insert, immutable
 
   @@index([at])
   @@index([actorId])
@@ -455,14 +466,67 @@ model AuditEvent {
 // ============================================================
 
 model CalendarEvent {
-  id          String     @id @default(cuid())
-  contentId   String?    // null if placeholder slot
+  id          String      @id @default(cuid())
+  contentId   String? // null if placeholder slot
   title       String
   scheduledAt DateTime
   channel     ChannelKey
   contentType ContentType
-  createdAt   DateTime   @default(now())
+  createdAt   DateTime    @default(now())
 
   @@index([scheduledAt])
   @@index([channel])
+}
+
+// ============================================================
+// Sprint 9 — n8n automation log + GDPR right-to-be-forgotten
+// ============================================================
+
+enum AutomationRunStatus {
+  running
+  success
+  failed
+  canceled
+}
+
+model AutomationRun {
+  id           String    @id @default(cuid())
+  workflowId   String // n8n workflow id, e.g. "publish-to-youtube-v2"
+  executionId  String // n8n execution id
+  triggeredBy  String // user id or "schedule"
+  status       String // running | success | failed | canceled
+  startedAt    DateTime  @default(now())
+  finishedAt   DateTime?
+  errorMessage String?
+  // Entities the run acted on — kept as opaque ids so we don't need FK to
+  // every possible target table (content, media, user…).
+  contentIds   String[]  @default([])
+  metadata     Json?
+
+  @@index([workflowId, status])
+  @@index([startedAt(sort: Desc)])
+}
+
+enum DeletionRequestStatus {
+  pending
+  confirmed
+  executed
+  rejected
+  cancelled
+}
+
+model UserDeletionRequest {
+  id            String    @id @default(cuid())
+  targetUserId  String
+  requestedById String
+  reason        String?
+  status        String    @default("pending")
+  requestedAt   DateTime  @default(now())
+  executedAt    DateTime?
+  // Snapshot of what was purged, for the audit trail. Kept after execution
+  // because the row in User itself is gone — this is the only record left.
+  summary       Json?
+
+  @@index([status])
+  @@index([requestedAt(sort: Desc)])
 }

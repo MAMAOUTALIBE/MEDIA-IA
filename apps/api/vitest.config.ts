@@ -1,10 +1,12 @@
 import { defineConfig } from "vitest/config";
 import { config as loadEnv } from "dotenv";
+import { resolve } from "node:path";
 
-// Load .env so DATABASE_URL and TEST_DATABASE_URL are available.
-// Per-spec: integration specs use TEST_DATABASE_URL (isolated cmr_test DB).
+// Load env from monorepo root first, then local apps/api/.env override if present.
+// Integration specs use TEST_DATABASE_URL (isolated cmr_test DB).
 // Black-box HTTP specs use the live API which connects to DATABASE_URL (cmr_dev).
-loadEnv({ path: ".env" });
+loadEnv({ path: resolve(__dirname, "../../.env") });
+loadEnv({ path: resolve(__dirname, ".env"), override: true });
 
 export default defineConfig({
   test: {

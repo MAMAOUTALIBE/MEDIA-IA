@@ -1,5 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import Anthropic from "@anthropic-ai/sdk";
+import { CircuitBreaker } from "../common/circuit-breaker";
 import { PrismaService } from "../prisma/prisma.service";
 
 const MODEL = process.env.CLAUDE_MODEL ?? "claude-sonnet-4-6";
@@ -25,6 +26,13 @@ const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 export class ClaudeService {
   private readonly logger = new Logger(ClaudeService.name);
   private readonly client: Anthropic | null;
+  // Claude rate-limits and partial outages should fail fast rather than queue
+  // requests against a known-degraded upstream.
+  private readonly breaker = new CircuitBreaker({
+    name: "claude",
+    failureThreshold: 5,
+    resetTimeoutMs: 30_000,
+  });
 
   constructor(private readonly prisma: PrismaService) {
     if (!ANTHROPIC_API_KEY) {
@@ -36,7 +44,7 @@ export class ClaudeService {
   }
 
   isAvailable(): boolean {
-    return this.client !== null;
+    return this.client !== null && this.breaker.getState() !== "OPEN";
   }
 
   /**
@@ -111,29 +119,32 @@ Tu réponds toujours en respectant strictement ce format et ces contraintes.`;
    */
   async ask(question: string): Promise<string> {
     if (!this.client) throw new Error("Claude not available");
+    const client = this.client;
     const snapshot = await this.buildSnapshot();
-    const res = await this.client.messages.create({
-      model: MODEL,
-      max_tokens: 1024,
-      system: [
-        {
-          type: "text",
-          text: this.systemPrompt(),
-          cache_control: { type: "ephemeral" }, // ~1k tokens cached 5 min
-        },
-      ],
-      messages: [
-        {
-          role: "user",
-          content: `${snapshot}\n\n---\nQUESTION UTILISATEUR :\n${question}`,
-        },
-      ],
+    return this.breaker.exec(async () => {
+      const res = await client.messages.create({
+        model: MODEL,
+        max_tokens: 1024,
+        system: [
+          {
+            type: "text",
+            text: this.systemPrompt(),
+            cache_control: { type: "ephemeral" }, // ~1k tokens cached 5 min
+          },
+        ],
+        messages: [
+          {
+            role: "user",
+            content: `${snapshot}\n\n---\nQUESTION UTILISATEUR :\n${question}`,
+          },
+        ],
+      });
+      const text = res.content
+        .map((b) => (b.type === "text" ? b.text : ""))
+        .filter(Boolean)
+        .join("\n");
+      return text || "(aucune réponse)";
     });
-    const text = res.content
-      .map((b) => (b.type === "text" ? b.text : ""))
-      .filter(Boolean)
-      .join("\n");
-    return text || "(aucune réponse)";
   }
 
   /**

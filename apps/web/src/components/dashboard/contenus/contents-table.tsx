@@ -12,6 +12,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Search, FileX2 } from "lucide-react";
 import { formatRelative } from "@/lib/format";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ApiErrorState } from "@/components/ui/api-error-state";
 import { TableSkeleton } from "@/components/ui/loading-skeletons";
 import type { ContentStatus, ContentType } from "@/types";
 
@@ -33,7 +34,7 @@ const typeLabel: Record<ContentType, string> = {
 
 export function ContentsTable() {
   const router = useRouter();
-  const { data, isLoading } = useContents();
+  const { data, error, isError, isLoading, refetch } = useContents();
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
 
@@ -123,7 +124,8 @@ export function ContentsTable() {
             })}
           </tbody>
         </table>
-        {!isLoading && rows.length === 0 && (
+        {isError && <ApiErrorState error={error} onRetry={() => void refetch()} />}
+        {!isError && !isLoading && rows.length === 0 && (
           <EmptyState
             icon={FileX2}
             title="Aucun contenu ne correspond aux filtres"
@@ -142,7 +144,7 @@ export function ContentsTable() {
             }
           />
         )}
-        {isLoading && (
+        {!isError && isLoading && (
           <div className="p-4">
             <TableSkeleton rows={8} columns={6} />
           </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
 import { SOCKET_URL } from "@/lib/api-client";
 
@@ -81,10 +81,15 @@ export function useSocketActivity(handlers: SocketHandlers | ((e: SocketActivity
   const socketRef = useRef<Socket | null>(null);
 
   // Normalise : si on reçoit juste une fonction, on l'attribue à onActivity
-  const handlersObj: SocketHandlers =
-    typeof handlers === "function" ? { onActivity: handlers } : handlers;
+  const handlersObj: SocketHandlers = useMemo(
+    () => (typeof handlers === "function" ? { onActivity: handlers } : handlers),
+    [handlers],
+  );
   const handlersRef = useRef(handlersObj);
-  handlersRef.current = handlersObj;
+
+  useEffect(() => {
+    handlersRef.current = handlersObj;
+  }, [handlersObj]);
 
   useEffect(() => {
     if (!SOCKET_URL) return;
@@ -141,7 +146,6 @@ export function useSocketActivity(handlers: SocketHandlers | ((e: SocketActivity
       socket.off();
       socket.disconnect();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return status;

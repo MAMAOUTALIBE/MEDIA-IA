@@ -26,7 +26,6 @@ if (otelEndpoint) {
     ],
   });
   sdk.start();
-  // eslint-disable-next-line no-console
   console.log(`✓ OpenTelemetry SDK started → ${otelEndpoint}`);
 }
 
@@ -49,6 +48,5 @@ if (dsn) {
       return event;
     },
   });
-  // eslint-disable-next-line no-console
   console.log(`✓ Sentry enabled (env: ${process.env.SENTRY_ENVIRONMENT ?? "dev"})`);
 }

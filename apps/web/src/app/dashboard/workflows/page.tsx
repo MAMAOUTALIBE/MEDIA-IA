@@ -10,12 +10,22 @@ import { ArrowRight, GitMerge, ChevronRight, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { EmptyState } from "@/components/ui/empty-state";
 import { CardListSkeleton } from "@/components/ui/loading-skeletons";
+import { ApiErrorState } from "@/components/ui/api-error-state";
+import { PermissionGate } from "@/components/auth/permission-gate";
 import { toast } from "sonner";
 
 const stepColors = ["#22d3ee", "#60a5fa", "#a78bfa", "#f472b6", "#10b981"];
 
 export default function WorkflowsPage() {
-  const { data, isLoading } = useWorkflows();
+  return (
+    <PermissionGate permission="view.workflows">
+      <WorkflowsContent />
+    </PermissionGate>
+  );
+}
+
+function WorkflowsContent() {
+  const { data, error, isError, isLoading, refetch } = useWorkflows();
   const advance = useAdvanceWorkflow();
   const instances = data?.instances ?? [];
   const counts = data?.counts ?? { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
@@ -28,8 +38,8 @@ export default function WorkflowsPage() {
     advance.mutate(
       { id: wfId, comment: "Advance via UI" },
       {
-        onSuccess: (r: { previousStep?: number; workflow?: { currentStep?: number } }) => {
-          toast.success(`« ${title} » avance étape ${r?.previousStep} → ${r?.workflow?.currentStep}`, {
+        onSuccess: (r: { fromStep?: string; toStep?: string }) => {
+          toast.success(`« ${title} » avance ${r?.fromStep ?? "—"} → ${r?.toStep ?? "—"}`, {
             description: "Broadcast WebSocket envoyé",
           });
         },
@@ -86,7 +96,9 @@ export default function WorkflowsPage() {
           title="Instances en cours"
           description={`${instances.length} workflow${instances.length > 1 ? "s" : ""} actif${instances.length > 1 ? "s" : ""}`}
         />
-        {isLoading ? (
+        {isError ? (
+          <ApiErrorState error={error} onRetry={() => void refetch()} />
+        ) : isLoading ? (
           <div className="p-5">
             <CardListSkeleton rows={5} />
           </div>

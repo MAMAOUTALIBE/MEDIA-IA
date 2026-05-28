@@ -29,7 +29,7 @@ class StubConnector implements PublisherConnector {
     // 90% success rate to exercise retry path
     if (Math.random() < 0.1) throw new Error(`stub ${this.channel} transient failure`);
     const externalId = `${this.channel}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    this.logger.log(`stub publish to ${this.channel} → ${externalId}`);
+    this.logger.log(`stub publish content=${contentId} to ${this.channel} → ${externalId}`);
     return { externalId, externalUrl: `https://example.${this.channel}.test/${externalId}` };
   }
 }

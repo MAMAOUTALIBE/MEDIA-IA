@@ -1,8 +1,9 @@
 import { BadRequestException, Body, Controller, Get, Post, Query, Req } from "@nestjs/common";
 import { ApiOperation, ApiTags } from "@nestjs/swagger";
+import { Throttle } from "@nestjs/throttler";
 import { IsInt, IsOptional, IsString, Max, MaxLength, Min } from "class-validator";
 import type { Request } from "express";
-import { Roles } from "../auth/roles.decorator";
+import { ExactRoles } from "../auth/roles.decorator";
 import { PrismaService } from "../prisma/prisma.service";
 import { StorageService } from "./storage.service";
 
@@ -65,7 +66,8 @@ export class MediaController {
    * Sprint 4 — Étape 1 : le client demande une presigned URL.
    * Le client uploade ensuite directement vers MinIO/S3, sans transiter par l'API.
    */
-  @Roles("journalist")
+  @ExactRoles("editor", "chief", "direction", "community_manager", "admin")
+  @Throttle({ "media-upload": { limit: 20, ttl: 60_000 } })
   @Post("upload/presign")
   @ApiOperation({ summary: "Generate presigned PUT URL for direct upload (15 min)" })
   async presign(@Body() body: PresignUploadDto, @Req() req: Request) {
@@ -87,7 +89,7 @@ export class MediaController {
    * Sprint 4 — Étape 2 : le client confirme l'upload terminé → enregistre l'asset en DB.
    * Le contenu effectif sur S3 sera vérifié async par un job de transcoding (Sprint 4b).
    */
-  @Roles("journalist")
+  @ExactRoles("editor", "chief", "direction", "community_manager", "admin")
   @Post("upload/finalize")
   @ApiOperation({ summary: "Register uploaded object as MediaAsset" })
   async finalize(@Body() body: FinalizeUploadDto, @Req() req: Request) {

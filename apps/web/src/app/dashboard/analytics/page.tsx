@@ -18,10 +18,21 @@ import { formatCompact, formatPercent } from "@/lib/format";
 import { ChannelIcon } from "@/components/ui/channel-icon";
 import { CHANNELS } from "@/lib/constants";
 import { PublicationHeatmap } from "@/components/dashboard/analytics/publication-heatmap";
+import { ClientOnlyChart } from "@/components/ui/client-only-chart";
+import { ApiErrorState } from "@/components/ui/api-error-state";
+import { PermissionGate } from "@/components/auth/permission-gate";
 
 export default function AnalyticsPage() {
+  return (
+    <PermissionGate permission="view.analytics">
+      <AnalyticsContent />
+    </PermissionGate>
+  );
+}
+
+function AnalyticsContent() {
   const [range, setRange] = useState<"7d" | "30d" | "90d" | "365d">("30d");
-  const { data } = useAnalyticsDeep();
+  const { data, error, isError, refetch } = useAnalyticsDeep();
   const engagement = data?.engagementByDayOfWeek ?? [];
   const topContents = data?.topContents ?? [];
   const topChannels = data?.topChannels ?? [];
@@ -45,6 +56,12 @@ export default function AnalyticsPage() {
         </Tabs>
       </div>
 
+      {isError ? (
+        <GlassCard>
+          <ApiErrorState error={error} onRetry={() => void refetch()} />
+        </GlassCard>
+      ) : (
+      <>
       <PublicationHeatmap />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -54,69 +71,73 @@ export default function AnalyticsPage() {
             description="Taux d'engagement moyen (%)"
           />
           <div className="h-72 p-4">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={engagement} margin={{ top: 10, right: 12, left: -10, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-                <XAxis dataKey="day" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-                <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={(v) => `${v}%`} />
-                <Tooltip
-                  cursor={{ fill: "rgba(255,255,255,0.04)" }}
-                  contentStyle={{
-                    background: "var(--bg-card)",
-                    border: "1px solid rgba(255,255,255,0.1)",
-                    borderRadius: 12,
-                    fontSize: 12,
-                  }}
-                  formatter={(v) => [formatPercent(Number(v)), "Engagement"]}
-                />
-                <Bar dataKey="engagement" radius={[8, 8, 0, 0]} fill="#8b5cf6" />
-              </BarChart>
-            </ResponsiveContainer>
+            <ClientOnlyChart>
+              <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
+                <BarChart data={engagement} margin={{ top: 10, right: 12, left: -10, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                  <XAxis dataKey="day" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
+                  <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={(v) => `${v}%`} />
+                  <Tooltip
+                    cursor={{ fill: "rgba(255,255,255,0.04)" }}
+                    contentStyle={{
+                      background: "var(--bg-card)",
+                      border: "1px solid rgba(255,255,255,0.1)",
+                      borderRadius: 12,
+                      fontSize: 12,
+                    }}
+                    formatter={(v) => [formatPercent(Number(v)), "Engagement"]}
+                  />
+                  <Bar dataKey="engagement" radius={[8, 8, 0, 0]} fill="#8b5cf6" />
+                </BarChart>
+              </ResponsiveContainer>
+            </ClientOnlyChart>
           </div>
         </GlassCard>
 
         <GlassCard>
           <GlassCardHeader title="Top canaux" description="Vues cumulées par canal" />
           <div className="h-72 p-4">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={topChannels}
-                layout="vertical"
-                margin={{ top: 4, right: 12, left: 0, bottom: 0 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" horizontal={false} />
-                <XAxis
-                  type="number"
-                  tick={{ fontSize: 11 }}
-                  tickLine={false}
-                  axisLine={false}
-                  tickFormatter={(v) => formatCompact(v as number)}
-                />
-                <YAxis
-                  type="category"
-                  dataKey="label"
-                  tick={{ fontSize: 11 }}
-                  tickLine={false}
-                  axisLine={false}
-                  width={90}
-                />
-                <Tooltip
-                  cursor={{ fill: "rgba(255,255,255,0.04)" }}
-                  contentStyle={{
-                    background: "var(--bg-card)",
-                    border: "1px solid rgba(255,255,255,0.1)",
-                    borderRadius: 12,
-                    fontSize: 12,
-                  }}
-                  formatter={(v) => [formatCompact(Number(v)), "Vues"]}
-                />
-                <Bar dataKey="views" radius={[0, 8, 8, 0]}>
-                  {topChannels.map((c) => (
-                    <Cell key={c.channel} fill={c.color} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+            <ClientOnlyChart>
+              <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
+                <BarChart
+                  data={topChannels}
+                  layout="vertical"
+                  margin={{ top: 4, right: 12, left: 0, bottom: 0 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" horizontal={false} />
+                  <XAxis
+                    type="number"
+                    tick={{ fontSize: 11 }}
+                    tickLine={false}
+                    axisLine={false}
+                    tickFormatter={(v) => formatCompact(v as number)}
+                  />
+                  <YAxis
+                    type="category"
+                    dataKey="label"
+                    tick={{ fontSize: 11 }}
+                    tickLine={false}
+                    axisLine={false}
+                    width={90}
+                  />
+                  <Tooltip
+                    cursor={{ fill: "rgba(255,255,255,0.04)" }}
+                    contentStyle={{
+                      background: "var(--bg-card)",
+                      border: "1px solid rgba(255,255,255,0.1)",
+                      borderRadius: 12,
+                      fontSize: 12,
+                    }}
+                    formatter={(v) => [formatCompact(Number(v)), "Vues"]}
+                  />
+                  <Bar dataKey="views" radius={[0, 8, 8, 0]}>
+                    {topChannels.map((c) => (
+                      <Cell key={c.channel} fill={c.color} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </ClientOnlyChart>
           </div>
         </GlassCard>
       </div>
@@ -160,6 +181,8 @@ export default function AnalyticsPage() {
           </table>
         </div>
       </GlassCard>
+      </>
+      )}
     </div>
   );
 }

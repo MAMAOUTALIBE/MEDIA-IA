@@ -4,17 +4,20 @@ import {
   Get,
   NotFoundException,
   Param,
+  Patch,
   Post,
   Query,
   Req,
 } from "@nestjs/common";
-import { ApiTags } from "@nestjs/swagger";
+import { ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger";
 import { IsOptional, IsString, MaxLength } from "class-validator";
 import type { Request } from "express";
-import { Roles } from "../auth/roles.decorator";
+import { ExactRoles, Roles } from "../auth/roles.decorator";
 import { NotificationsGateway } from "../notifications/notifications.gateway";
 import { PrismaService } from "../prisma/prisma.service";
 import { WorkflowsService } from "../workflows/workflows.service";
+import { ContentsService } from "./contents.service";
+import { UpdateContentTagsDto } from "./dto/update-content-tags.dto";
 
 class ValidateDto {
   @IsOptional() @IsString() @MaxLength(2000)
@@ -32,6 +35,7 @@ export class ContentsController {
     private readonly notifications: NotificationsGateway,
     private readonly prisma: PrismaService,
     private readonly workflows: WorkflowsService,
+    private readonly contentsService: ContentsService,
   ) {}
 
   @Get()
@@ -147,5 +151,22 @@ export class ContentsController {
       at: new Date().toISOString(),
     });
     return result;
+  }
+
+  // Sprint 9 — Auto-tagging IA via n8n. Restreint à service_automation
+  // pour qu'aucun rôle humain ne puisse écraser tags/summary par ce chemin.
+  @Patch(":id/tags")
+  @ExactRoles("service_automation")
+  @ApiOperation({
+    summary: "Auto-tag a draft (n8n only). Sets tags + summary, no workflow side-effect.",
+  })
+  @ApiResponse({ status: 200, description: "Content updated" })
+  @ApiResponse({ status: 403, description: "Forbidden — service_automation required" })
+  @ApiResponse({ status: 404, description: "Content not found" })
+  async autoTag(
+    @Param("id") id: string,
+    @Body() dto: UpdateContentTagsDto,
+  ) {
+    return this.contentsService.applyAutoTags(id, dto);
   }
 }

@@ -10,7 +10,7 @@ export function EmptyState({
 }: {
   icon?: ComponentType<{ size?: number; className?: string }>;
   title: string;
-  description?: string;
+  description?: ReactNode;
   action?: ReactNode;
   className?: string;
 }) {

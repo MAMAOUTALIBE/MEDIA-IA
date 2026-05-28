@@ -1,8 +1,10 @@
 import { Controller, Get, NotFoundException, Param } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
+import { Roles } from "../auth/roles.decorator";
 import { PrismaService } from "../prisma/prisma.service";
 
 @ApiTags("users")
+@Roles("admin")
 @Controller("users")
 export class UsersController {
   constructor(private readonly prisma: PrismaService) {}

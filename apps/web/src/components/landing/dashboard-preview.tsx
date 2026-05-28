@@ -6,6 +6,7 @@ import { FadeInOnScroll } from "./fade-in-on-scroll";
 import { LayoutDashboard, FileText, Image as ImageIcon, Calendar, GitBranch, Zap, Send, BarChart3, Search, Bell } from "lucide-react";
 import { Area, AreaChart, Cell, Pie, PieChart, ResponsiveContainer } from "recharts";
 import { CHANNELS } from "@/lib/constants";
+import { ClientOnlyChart } from "@/components/ui/client-only-chart";
 
 const audienceSpark = Array.from({ length: 20 }, (_, i) => ({
   v: 60 + Math.sin(i * 0.5) * 20 + i * 1.5,
@@ -132,17 +133,19 @@ export function DashboardPreview() {
                   <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-2">
                     <p className="mb-1 text-[10px] font-semibold text-text-primary">Statistiques d&apos;audience</p>
                     <div className="h-16">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={audienceSpark} margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
-                          <defs>
-                            <linearGradient id="preview-audience" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="0%" stopColor="#60a5fa" stopOpacity={0.6} />
-                              <stop offset="100%" stopColor="#60a5fa" stopOpacity={0} />
-                            </linearGradient>
-                          </defs>
-                          <Area type="monotone" dataKey="v" stroke="#60a5fa" strokeWidth={1.4} fill="url(#preview-audience)" />
-                        </AreaChart>
-                      </ResponsiveContainer>
+                      <ClientOnlyChart>
+                        <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
+                          <AreaChart data={audienceSpark} margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
+                            <defs>
+                              <linearGradient id="preview-audience" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stopColor="#60a5fa" stopOpacity={0.6} />
+                                <stop offset="100%" stopColor="#60a5fa" stopOpacity={0} />
+                              </linearGradient>
+                            </defs>
+                            <Area type="monotone" dataKey="v" stroke="#60a5fa" strokeWidth={1.4} fill="url(#preview-audience)" />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      </ClientOnlyChart>
                     </div>
                   </div>
                 </div>
@@ -170,15 +173,17 @@ export function DashboardPreview() {
                   <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-2">
                     <p className="mb-1 text-[10px] font-semibold text-text-primary">Répartition</p>
                     <div className="relative h-24">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie data={platforms.slice() as unknown as Array<{ c: string; share: number }>} dataKey="share" nameKey="c" innerRadius={26} outerRadius={44} stroke="rgba(0,0,0,0.5)">
-                            {platforms.map((p) => (
-                              <Cell key={p.c} fill={p.c === "others" ? "#9ca3af" : CHANNELS[p.c as keyof typeof CHANNELS]?.color ?? "#9ca3af"} />
-                            ))}
-                          </Pie>
-                        </PieChart>
-                      </ResponsiveContainer>
+                      <ClientOnlyChart>
+                        <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
+                          <PieChart>
+                            <Pie data={platforms.slice() as unknown as Array<{ c: string; share: number }>} dataKey="share" nameKey="c" innerRadius={26} outerRadius={44} stroke="rgba(0,0,0,0.5)">
+                              {platforms.map((p) => (
+                                <Cell key={p.c} fill={p.c === "others" ? "#9ca3af" : CHANNELS[p.c as keyof typeof CHANNELS]?.color ?? "#9ca3af"} />
+                              ))}
+                            </Pie>
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </ClientOnlyChart>
                     </div>
                   </div>
                 </div>

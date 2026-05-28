@@ -1,0 +1,93 @@
+# docker-compose.override.yml — PRODUCTION VPS (Hostinger + Traefik HTTPS)
+#
+# Usage:
+#   1. Copy to docker-compose.override.yml  (this name is auto-loaded by docker compose)
+#   2. Fill in your domains in the labels below
+#   3. Run: docker compose --profile app up -d --build
+#
+# This file does THREE things in production:
+#   A. Removes the host-bound port mappings on Postgres / Redis / MinIO so
+#      they're ONLY reachable from inside the cmr-net Docker network. Even if
+#      UFW is misconfigured, the DBs are invisible from the Internet.
+#   B. Adds Traefik labels so api.<domain> and <domain> get automatic HTTPS via
+#      Let's Encrypt, with HTTP→HTTPS redirect.
+#   C. Locks NODE_ENV=production so the API enables tight CSP, strict CORS,
+#      schema-validated env, HSTS preload, etc.
+
+services:
+  # ------------------------------------------------------------------
+  # POSTGRES — internal network only (no host port). The DB is reachable
+  # at hostname `postgres:5432` from inside the network, period.
+  # ------------------------------------------------------------------
+  postgres:
+    ports: []                              # remove host port 5435:5432
+    # Optional hardening: read-only root filesystem
+    # security_opt:
+    #   - no-new-privileges:true
+
+  # ------------------------------------------------------------------
+  # REDIS — internal network only
+  # ------------------------------------------------------------------
+  redis:
+    ports: []                              # remove host port 6381:6379
+
+  # ------------------------------------------------------------------
+  # MINIO — internal only; the S3 API + console are exposed via Traefik
+  # below behind auth (you can also keep them unexposed for max safety).
+  # ------------------------------------------------------------------
+  minio:
+    ports: []                              # remove host ports 9100/9101
+    # Uncomment to expose the S3 API publicly via Traefik:
+    # labels:
+    #   - "traefik.enable=true"
+    #   - "traefik.http.routers.minio.rule=Host(`storage.${DOMAIN}`)"
+    #   - "traefik.http.routers.minio.entrypoints=websecure"
+    #   - "traefik.http.routers.minio.tls.certresolver=letsencrypt"
+    #   - "traefik.http.services.minio.loadbalancer.server.port=9000"
+
+  # ------------------------------------------------------------------
+  # API — exposed via Traefik on api.<domain>
+  # ------------------------------------------------------------------
+  api:
+    profiles: ["app"]
+    ports: []                              # remove host port 4000:4000
+    environment:
+      NODE_ENV: production
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=cmr_cmr-net"
+      - "traefik.http.routers.cmr-api.rule=Host(`api.${DOMAIN}`)"
+      - "traefik.http.routers.cmr-api.entrypoints=websecure"
+      - "traefik.http.routers.cmr-api.tls.certresolver=letsencrypt"
+      - "traefik.http.services.cmr-api.loadbalancer.server.port=4000"
+      # Strip /api prefix → no, the API already mounts on /api globally
+      # Add reasonable timeouts for SSE streaming endpoints (AI).
+      - "traefik.http.services.cmr-api.loadbalancer.passHostHeader=true"
+
+  # ------------------------------------------------------------------
+  # WEB — exposed via Traefik on <domain> and www.<domain>
+  # ------------------------------------------------------------------
+  web:
+    profiles: ["app"]
+    ports: []                              # remove host port 3000:3000
+    environment:
+      NODE_ENV: production
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=cmr_cmr-net"
+      - "traefik.http.routers.cmr-web.rule=Host(`${DOMAIN}`) || Host(`www.${DOMAIN}`)"
+      - "traefik.http.routers.cmr-web.entrypoints=websecure"
+      - "traefik.http.routers.cmr-web.tls.certresolver=letsencrypt"
+      - "traefik.http.services.cmr-web.loadbalancer.server.port=3000"
+      # Redirect www → root
+      - "traefik.http.middlewares.cmr-www-redirect.redirectregex.regex=^https?://www\\.(.*)"
+      - "traefik.http.middlewares.cmr-www-redirect.redirectregex.replacement=https://$$1"
+      - "traefik.http.middlewares.cmr-www-redirect.redirectregex.permanent=true"
+      - "traefik.http.routers.cmr-web.middlewares=cmr-www-redirect"
+
+  # ------------------------------------------------------------------
+  # MAILPIT — remove in prod (replace with real SMTP relay). Kept off
+  # by overriding the profiles so `docker compose up` won't start it.
+  # ------------------------------------------------------------------
+  mailpit:
+    profiles: ["dev-only"]                # mailpit won't start unless explicitly requested

@@ -2,9 +2,10 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuditService } from "./audit.service";
 
-const TEST_DB_URL = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL!;
+const TEST_DB_URL = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL;
 
-describe("AuditService chain", () => {
+// Skip cleanly when no DB connection string is available (e.g. CI without Postgres).
+describe.skipIf(!TEST_DB_URL)("AuditService chain", () => {
   let prisma: PrismaService;
   let audit: AuditService;
 

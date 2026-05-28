@@ -29,11 +29,13 @@ const stepLabel = { editor: "Rédacteur", chief: "Chef d'édition", direction: "
 
 export function ContentDetailSheet({
   pending,
+  canModerate = true,
   onValidate,
   onReject,
   onOpenChange,
 }: {
   pending: PendingContent | null;
+  canModerate?: boolean;
   onValidate: (id: string) => void;
   onReject: (id: string) => void;
   onOpenChange: (open: boolean) => void;
@@ -48,6 +50,7 @@ export function ContentDetailSheet({
   const warnCount = aiCheckResults.filter((r) => r.status !== "passed").length;
 
   function handleValidate() {
+    if (!canModerate) return;
     onValidate(pending!.id);
     toast.success(`« ${pending!.title} » validé`, {
       description: `Étape ${stepLabel[pending!.step]} franchie`,
@@ -55,6 +58,7 @@ export function ContentDetailSheet({
     onOpenChange(false);
   }
   function handleReject() {
+    if (!canModerate) return;
     onReject(pending!.id);
     toast.error(`« ${pending!.title} » rejeté`, {
       description: "Le journaliste a été notifié",
@@ -180,11 +184,17 @@ export function ContentDetailSheet({
         </div>
 
         <SheetFooter className="border-t border-white/[0.06] !p-5">
+          {!canModerate && (
+            <p className="mb-3 w-full rounded-lg bg-warning/10 px-3 py-2 text-xs text-warning ring-1 ring-warning/20">
+              Votre rôle ne permet pas de valider ou rejeter cette étape.
+            </p>
+          )}
           <div className="flex w-full items-center gap-2">
             <button
               type="button"
               onClick={handleReject}
-              className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-danger/30 bg-danger/10 px-4 py-2.5 text-sm font-semibold text-danger transition hover:bg-danger/15"
+              disabled={!canModerate}
+              className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-danger/30 bg-danger/10 px-4 py-2.5 text-sm font-semibold text-danger transition hover:bg-danger/15 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <X size={14} />
               Rejeter
@@ -192,7 +202,8 @@ export function ContentDetailSheet({
             <button
               type="button"
               onClick={handleValidate}
-              className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-accent-blue to-accent-violet px-4 py-2.5 text-sm font-semibold text-white shadow-glow-violet transition hover:opacity-95"
+              disabled={!canModerate}
+              className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-accent-blue to-accent-violet px-4 py-2.5 text-sm font-semibold text-white shadow-glow-violet transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Check size={14} />
               Valider et faire avancer

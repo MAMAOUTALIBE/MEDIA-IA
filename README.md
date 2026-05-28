@@ -19,15 +19,20 @@ L'objectif **MEDIA-IA** est de proposer une alternative ouverte, IA-native et so
 
 | Couche | Statut | Notes |
 |---|---|---|
-| **Frontend** (Next.js 16 + React 19 + Tailwind v4) | ✅ Production-ready | 17 routes, 14 modules, dark glassmorphism |
-| **Backend** (NestJS) | 🟡 Scaffold | `apps/api` health endpoint uniquement |
-| **Auth** | ❌ | Utilisateur courant hardcodé pour la démo |
-| **Persistance** | ❌ | Mocks Zustand + TanStack Query |
-| **Temps réel** | 🟡 Simulé | setInterval ; à remplacer par WebSocket |
-| **IA** | 🟡 Heuristiques | À remplacer par LLM + Whisper réels |
-| **Médias** | 🟡 Drag-drop visuel | À brancher S3 + FFmpeg |
-| **Tests** | ❌ | À ajouter (Vitest + Playwright + k6) |
-| **CI/CD** | 🟡 | Workflow GitHub Actions présent, à activer côté repo |
+| **Frontend** (Next.js 16 + React 19 + Tailwind v4) | ✅ Production-ready | 17 routes, 14 modules, dark glassmorphism, aurora animée, error/not-found/global-error |
+| **Backend** (NestJS 11) | ✅ Production-ready | 17 modules, RFC 7807 Problem Details, request-id correlation, graceful shutdown, timeout/idempotency/circuit-breaker interceptors |
+| **Auth** | ✅ | JWT HS512 + Argon2id + 2FA TOTP + refresh-token rotation + cooldown anti-cascade + `service_automation` role pour n8n |
+| **Persistance** | ✅ | Prisma 6 + Postgres 16, 3 migrations (init / Sprint 1 MFA / Sprint 9 n8n+GDPR), audit chain SHA-256 vérifiable |
+| **Temps réel** | ✅ | Socket.IO + Redis adapter (scale-out), fallback in-process |
+| **IA** | ✅ | Claude Sonnet 4.6 streaming SSE + circuit breaker, prompt-caching, fallback heuristique |
+| **Médias** | ✅ | S3/MinIO presigned URLs, `media-upload` throttle bucket dédié |
+| **Tests** | 🟢 | 76 unit (+ 14 opt-in E2E) ; audit modules 16/16 ; audit API 37/37 ; smoke 18/18 |
+| **Sécurité runtime** | ✅ | Helmet strict + CSP prod + COOP + HSTS preload + CORS allow-list exact + 4 throttle buckets (auth, ai, media, default) |
+| **GDPR** | ✅ | Right-to-be-forgotten (4-eyes principle) + `UserDeletionRequest` + audit critical |
+| **n8n integration** | 🟡 Foundations | Rôle + service-token + AutomationRun model + audit hooks prêts ; déploiement n8n à faire ([ADR-011](./docs/adr/011-n8n-integration.md)) |
+| **Observabilité** | ✅ | Sentry (api + web) + OpenTelemetry + Prometheus + Pino + X-Request-Id end-to-end |
+| **CI/CD** | ✅ | GH Actions complet (lint/test/build + Trivy + CodeQL + Lighthouse) |
+| **Feature flags** | ✅ | In-process, env-overridable, 8 flags couvrant publishing/AI/GDPR/n8n |
 
 Roadmap stratégique 12 mois : voir [`docs/ROADMAP.md`](./docs/ROADMAP.md).
 

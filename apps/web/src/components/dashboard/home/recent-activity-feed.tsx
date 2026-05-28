@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { GlassCard, GlassCardHeader } from "@/components/ui/glass-card";
+import { ApiErrorState } from "@/components/ui/api-error-state";
 import { useRecentActivity } from "@/lib/queries";
 import { useSocketActivity } from "@/lib/socket";
 import { InitialsAvatar } from "@/components/ui/initials-avatar";
@@ -80,7 +81,7 @@ const templates: Array<Omit<ActivityEvent, "id" | "at">> = [
 ];
 
 export function RecentActivityFeed() {
-  const { data } = useRecentActivity();
+  const { data, error, isError, refetch } = useRecentActivity();
   const [liveItems, setLiveItems] = useState<ActivityEvent[]>([]);
 
   // WebSocket — events pushés depuis l'API si connectée
@@ -139,6 +140,9 @@ export function RecentActivityFeed() {
           </span>
         }
       />
+      {isError ? (
+        <ApiErrorState error={error} onRetry={() => void refetch()} />
+      ) : (
       <ul className="max-h-[26rem] divide-y divide-white/[0.05] overflow-y-auto">
         <AnimatePresence initial={false}>
           {items.map((e) => {
@@ -173,6 +177,7 @@ export function RecentActivityFeed() {
           })}
         </AnimatePresence>
       </ul>
+      )}
     </GlassCard>
   );
 }

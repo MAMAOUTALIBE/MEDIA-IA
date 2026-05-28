@@ -9,7 +9,9 @@ import type { MediaType } from "@/types";
 import { formatRelative } from "@/lib/format";
 import { EmptyState } from "@/components/ui/empty-state";
 import { CardGridSkeleton } from "@/components/ui/loading-skeletons";
+import { ApiErrorState } from "@/components/ui/api-error-state";
 import { UploadZone } from "@/components/dashboard/medias/upload-zone";
+import { useCan } from "@/lib/use-rbac";
 
 type Filter = "all" | MediaType;
 
@@ -21,7 +23,8 @@ const typeIcons = {
 };
 
 export default function MediasPage() {
-  const { data, isLoading } = useMediaAssets();
+  const { data, error, isError, isLoading, refetch } = useMediaAssets();
+  const canUpload = useCan("media.upload");
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
 
@@ -39,14 +42,16 @@ export default function MediasPage() {
         </div>
         <button
           type="button"
-          className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-accent-blue to-accent-violet px-4 py-2 text-sm font-semibold text-white shadow-glow-violet transition hover:opacity-95"
+          disabled={!canUpload}
+          className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-accent-blue to-accent-violet px-4 py-2 text-sm font-semibold text-white shadow-glow-violet transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-40"
+          title={canUpload ? "Uploader un média" : "Votre rôle ne permet pas d'uploader des médias"}
         >
           <Upload size={16} />
           Uploader
         </button>
       </div>
 
-      <UploadZone />
+      <UploadZone canUpload={canUpload} />
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Tabs value={filter} onValueChange={(v) => setFilter(v as Filter)}>
@@ -69,7 +74,11 @@ export default function MediasPage() {
         </div>
       </div>
 
-      {isLoading ? (
+      {isError ? (
+        <GlassCard>
+          <ApiErrorState error={error} onRetry={() => void refetch()} />
+        </GlassCard>
+      ) : isLoading ? (
         <CardGridSkeleton count={10} />
       ) : list.length === 0 ? (
         <EmptyState

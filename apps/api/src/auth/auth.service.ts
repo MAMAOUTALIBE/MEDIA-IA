@@ -210,4 +210,42 @@ export class AuthService {
     if (!user || user.deletedAt) throw new UnauthorizedException("Compte supprimé");
     return user;
   }
+
+  /**
+   * Mint a short-lived JWT for a non-human service caller (n8n, GitHub Actions).
+   * Admin-issued, audit-logged, scope-tagged so the audit chain knows the token
+   * is for automation (and won't trip suspicious-login heuristics).
+   *
+   * The token uses the SAME JWT_SECRET as humans on purpose — adding a parallel
+   * verification path is a foot-gun. What changes is the role + payload tag,
+   * which the RolesGuard already enforces via service_automation.
+   */
+  async issueServiceToken(opts: {
+    issuedByUserId: string;
+    label: string; // human-readable purpose, e.g. "n8n:publish-to-youtube"
+    ttlSeconds?: number; // default 12h, capped at 24h
+    ip?: string;
+    userAgent?: string;
+  }) {
+    const ttl = Math.min(opts.ttlSeconds ?? 12 * 60 * 60, 24 * 60 * 60);
+    const sub = `service:${opts.label.replace(/[^a-zA-Z0-9:_-]/g, "_").slice(0, 64)}`;
+    const payload: JwtPayload = {
+      sub,
+      email: `${sub}@cmr.local`,
+      role: "service_automation",
+      name: opts.label,
+    };
+    const token = await this.jwt.signAsync(payload, { expiresIn: ttl });
+    await this.safeAudit({
+      actorId: opts.issuedByUserId,
+      action: "service_token_issued" as never,
+      target: sub,
+      severity: "info",
+      status: "success",
+      ip: opts.ip,
+      userAgent: opts.userAgent,
+      metadata: { label: opts.label, ttlSeconds: ttl },
+    });
+    return { token, sub, expiresIn: ttl };
+  }
 }

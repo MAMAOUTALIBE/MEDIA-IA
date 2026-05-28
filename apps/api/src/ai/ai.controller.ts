@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Post, Res } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
+import { Throttle } from "@nestjs/throttler";
 import { IsOptional, IsString, MaxLength } from "class-validator";
 import type { Response } from "express";
 import { aiCheckResults, aiGlobalScore, aiRecommendations } from "../mocks/data-extra";
@@ -11,7 +12,10 @@ class AskDto {
   question?: string;
 }
 
+// Cost shield: LLM endpoints are expensive — cap per-IP RPM lower than the
+// default 100/min bucket. The named "ai" bucket is defined in AppModule.
 @ApiTags("ai")
+@Throttle({ ai: { limit: 30, ttl: 60_000 } })
 @Controller("ai")
 export class AiController {
   constructor(

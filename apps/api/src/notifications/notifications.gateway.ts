@@ -26,7 +26,36 @@ export class NotificationsGateway
   private activityTimer?: NodeJS.Timeout;
   private tick = 0;
 
-  afterInit() {
+  async afterInit() {
+    // Horizontal scaling: when REDIS_URL is set we attach the socket.io-redis
+    // adapter so every API replica receives the same broadcast. Without it,
+    // a workflow.advanced event published on replica A is invisible to
+    // clients connected to replica B.
+    //
+    // The adapter import is dynamic so the dep stays optional — single-replica
+    // dev/test environments work with zero Redis dependency.
+    const redisUrl = process.env.REDIS_URL;
+    if (redisUrl) {
+      try {
+        const [{ createClient }, { createAdapter }] = await Promise.all([
+          import("redis"),
+          import("@socket.io/redis-adapter"),
+        ]);
+        const pubClient = createClient({ url: redisUrl });
+        const subClient = pubClient.duplicate();
+        await Promise.all([pubClient.connect(), subClient.connect()]);
+        this.server.adapter(createAdapter(pubClient, subClient));
+        this.logger.log(`Socket.IO Redis adapter attached (${redisUrl.replace(/:[^:@]+@/, ":***@")})`);
+      } catch (err) {
+        this.logger.warn(
+          `REDIS_URL set but adapter could not be loaded — falling back to in-process pubsub: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    } else {
+      this.logger.log("No REDIS_URL — using in-process Socket.IO adapter (single-replica only)");
+    }
     this.logger.log("WebSocket gateway ready on /notifications");
     // Heartbeat — server-side pulse every 5s for clients to verify connection
     this.heartbeatTimer = setInterval(() => {

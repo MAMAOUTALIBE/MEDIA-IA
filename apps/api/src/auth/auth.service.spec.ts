@@ -13,9 +13,9 @@ import { SessionsService } from "./sessions.service";
  */
 
 const ARGON2_OPTS = { memoryCost: 65536, timeCost: 3, parallelism: 4 } as const;
-const TEST_DB_URL = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL!;
+const TEST_DB_URL = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL;
 
-describe("AuthService (integration)", () => {
+describe.skipIf(!TEST_DB_URL)("AuthService (integration)", () => {
   let svc: AuthService;
   let jwt: JwtService;
   let prisma: PrismaService;

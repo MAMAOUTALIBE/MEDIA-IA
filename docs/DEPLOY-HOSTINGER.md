@@ -6,13 +6,24 @@ Documentation **opérationnelle** : capture la config réelle de production et l
 
 ---
 
-## ⚠️ Pièges Hostinger à connaître (sinon tu perds 6h)
+## ⚠️ Pièges à connaître (sinon tu perds des heures)
 
+### Côté Hostinger
 1. **DNS** : les enregistrements A pour `cmr.gmd2025.org` et `api.cmr.gmd2025.org` doivent pointer vers **`187.127.228.197`** (vraie IP VPS), PAS `147.79.102.14` (IP NAT partagée Hostinger qui sert d'autres clients).
    - Vérifie avec : `dig +short srv1643859.hstgr.cloud @8.8.8.8` → doit retourner la même IP que tes records DNS.
 2. **Traefik Hostinger refuse silencieusement nos containers custom-built** (cmr-api, cmr-web). Aucune log, aucune erreur — juste ignoré. Cause inconnue côté Hostinger (probable check de signature/registry interne).
 3. **Workaround** : on met un **nginx reverse-proxy** devant cmr-api et cmr-web. Traefik route vers nginx (qu'il accepte), nginx forwarde vers nos apps. Coût : 2 containers nginx:alpine de ~5 MB chacun, 0% CPU au repos.
 4. **`docker-compose.override.yml`** ne doit PAS exister sur le VPS (il pollue le compose principal avec un network `cmr-net` qui n'existe pas). Si présent : `rm /opt/cmr/docker-compose.override.yml`.
+
+### Côté code / build (appris à la dure)
+5. **`dotenv` DOIT être en `dependencies`** (pas `devDependencies`) dans `apps/api/package.json`. Sinon le build prod échoue avec `MODULE_NOT_FOUND` (l'image runtime n'a que les deps prod).
+6. **`infra/api.Dockerfile` doit copier `/app/apps/api/node_modules`** en plus de `/app/node_modules`. Le monorepo pnpm crée des symlinks dans le workspace que la copie racine manque. Sans cette ligne : `Cannot find module 'reflect-metadata'` et autres.
+7. **Le runtime image `node:22-alpine` n'a PAS pnpm**. Pour appliquer des migrations Prisma en prod, utilise **psql direct** (voir §6) ou via le builder stage.
+8. **`SENTRY_DSN` est optionnel** (rule `requiredInProd` retirée dans `apps/api/src/common/env.validation.ts`). Si tu remets la rule, ajoute la valeur au `.env`.
+
+### Côté déploiement (rsync)
+9. **Le rsync exclut DÉJÀ `.env`** dans `infra/scripts/deploy-hostinger.sh`. Ne JAMAIS retirer cet exclude — sinon ton `.env` local (dev) écrase la prod et il faut tout restaurer (POSTGRES_PASSWORD, JWT_SECRET, SEED_PASSWORD…).
+10. **`patches/instrument-stub.js` doit exister localement** dans le repo. Le compose le mount en volume vers `/app/apps/api/dist/instrument.js`. Si le fichier n'existe pas, Docker crée un DOSSIER à sa place et le container crash au boot.
 
 ---
 
@@ -222,8 +233,9 @@ rsync -avz --delete \
 # 2. Rebuild + restart (zero-downtime si possible, sinon ~30s de coupure)
 ssh root@187.127.228.197 'cd /opt/cmr && docker compose --profile app up -d --build api web proxy-api proxy-web'
 
-# 3. Si migrations Prisma à appliquer :
-ssh root@187.127.228.197 'docker exec cmr-api sh -c "cd /app && pnpm --filter @cmr/db exec prisma migrate deploy"'
+# 3. Si migrations Prisma à appliquer (pnpm absent du runtime → SQL direct via psql) :
+ssh root@187.127.228.197 'docker exec -i cmr-pg psql -U cmr -d cmr_prod < /opt/cmr/packages/db/prisma/migrations/<TIMESTAMP>_<name>/migration.sql'
+# OU : copie/colle le SQL via heredoc directement dans psql.
 
 # 4. Smoke test
 ssh root@187.127.228.197 'curl -s https://api.cmr.gmd2025.org/api/health'
@@ -354,6 +366,58 @@ ssh root@187.127.228.197 'cd /opt/cmr && docker compose --profile app up -d --bu
 ```
 
 Une ligne, ~3 minutes, et c'est en prod.
+
+---
+
+## 13. Sprint 9 — Intégration n8n (état au 2026-05-29)
+
+### Acquis
+- ✅ Container `n8n-app` connecté au réseau `cmr_default` (parle à `cmr-api:4000` en interne)
+- ✅ Endpoint admin `POST /api/auth/service-token` qui mint un JWT `service_automation` (TTL configurable, max 24h)
+- ✅ Endpoint n8n `PATCH /api/contents/:id/tags` (Sprint 9) — restreint à `service_automation`, set `tags + summary` sans toucher au workflow Camunda
+- ✅ Modèle `AutomationRun` dans Prisma + endpoint `POST /api/automations/runs` pour audit
+- ✅ Right-to-be-forgotten endpoints `/api/gdpr/deletion-requests/*` (4-eyes principle)
+- ✅ Migration `20260529_content_tags_summary` (colonnes `tags String[]` + `summary String?` sur `Content` + index GIN)
+
+### Mint un service-token pour n8n
+
+```bash
+# Sur ton Mac ou le VPS
+source /opt/cmr/.env  # ou exporte les vars
+ADMIN_TOKEN=$(curl -s -X POST https://api.cmr.gmd2025.org/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d "{\"email\":\"$SEED_ADMIN_EMAIL\",\"password\":\"$SEED_PASSWORD\"}" \
+  | python3 -c "import sys,json;print(json.load(sys.stdin)['token'])")
+
+# Mint token n8n (12h)
+curl -X POST https://api.cmr.gmd2025.org/api/auth/service-token \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"label":"n8n-production","ttlSeconds":43200}'
+# → {"token":"eyJ...","sub":"service:n8n-production","expiresIn":43200}
+```
+
+### Configurer la credential dans n8n
+1. n8n UI : Credentials → Add → **Header Auth**
+2. Name : `Authorization` | Value : `Bearer eyJ...` (le token complet)
+3. Save sous le nom `CMR API`
+
+### Endpoints réservés à `service_automation`
+
+| Méthode | Route | Usage |
+|---|---|---|
+| PATCH | `/api/contents/:id/tags` | Pose tags + summary (idempotent, ne touche pas status) |
+| POST | `/api/automations/runs` | Log d'exécution (OBLIGATOIRE pour audit) |
+| POST | `/api/gdpr/deletion-requests/:id/execute` | Exécution effacement RGPD |
+
+Les autres rôles humains ont `403 Forbidden` sur ces routes (sécurité ANSSI).
+
+### Smoke test depuis n8n container (réseau interne)
+```bash
+# Depuis le container n8n-app, vérifie qu'il parle bien à cmr-api :
+ssh root@187.127.228.197 'docker exec n8n-app curl -s http://cmr-api:4000/api/health'
+# → {"ok":true,"service":"cmr-api","version":"0.1.0","env":"production"}
+```
 
 ---
 

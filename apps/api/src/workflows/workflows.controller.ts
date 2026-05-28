@@ -15,6 +15,7 @@ class AdvanceDto {
 }
 
 @ApiTags("workflows")
+@Roles("editor")
 @Controller("workflows")
 export class WorkflowsController {
   constructor(
@@ -34,7 +35,6 @@ export class WorkflowsController {
     return this.workflows.history(id);
   }
 
-  @Roles("editor")
   @Post(":id/advance")
   @ApiOperation({ summary: "Advance / reject a workflow — creates a signed ValidationAction" })
   async advance(@Param("id") id: string, @Body() body: AdvanceDto, @Req() req: Request) {

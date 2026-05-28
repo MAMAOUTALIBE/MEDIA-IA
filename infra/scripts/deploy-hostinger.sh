@@ -58,6 +58,7 @@ rsync -az --delete \
   --exclude .turbo \
   --exclude dist \
   --exclude .git \
+  --exclude .env \
   --exclude docker-compose.override.yml \
   --exclude '*.bak.*' \
   ./ "$VPS_USER@$VPS_HOST:$VPS_PATH/" 2>&1 | tail -5

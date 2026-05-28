@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { GlassCard, GlassCardHeader } from "@/components/ui/glass-card";
+import { ApiErrorState } from "@/components/ui/api-error-state";
+import { PermissionGate } from "@/components/auth/permission-gate";
 import { useDiffusionMatrix } from "@/lib/queries";
 import { CHANNELS, CHANNEL_ORDER } from "@/lib/constants";
 import { ChannelIcon } from "@/components/ui/channel-icon";
@@ -21,7 +23,15 @@ const statusMeta: Record<Status, { color: string; bg: string; icon: React.Compon
 };
 
 export default function DiffusionPage() {
-  const { data } = useDiffusionMatrix();
+  return (
+    <PermissionGate permission="view.diffusion">
+      <DiffusionContent />
+    </PermissionGate>
+  );
+}
+
+function DiffusionContent() {
+  const { data, error, isError, refetch } = useDiffusionMatrix();
   const matrix = data?.matrix ?? [];
   const stats = data?.stats ?? { publishedToday: 0, scheduled: 0, failed: 0 };
   const [openCell, setOpenCell] = useState<DiffusionCell | null>(null);
@@ -35,6 +45,12 @@ export default function DiffusionPage() {
         </p>
       </div>
 
+      {isError ? (
+        <GlassCard>
+          <ApiErrorState error={error} onRetry={() => void refetch()} />
+        </GlassCard>
+      ) : (
+      <>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <GlassCard className="p-5">
           <p className="text-xs text-text-secondary">Publications aujourd&apos;hui</p>
@@ -117,13 +133,15 @@ export default function DiffusionPage() {
           </table>
         </div>
       </GlassCard>
+      </>
+      )}
 
-      <CellDetailSheet
+      {!isError && <CellDetailSheet
         cell={openCell}
         onOpenChange={(o) => {
           if (!o) setOpenCell(null);
         }}
-      />
+      />}
     </div>
   );
 }

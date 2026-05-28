@@ -5,6 +5,8 @@ import { GlassCard, GlassCardHeader } from "@/components/ui/glass-card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { InitialsAvatar } from "@/components/ui/initials-avatar";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ApiErrorState } from "@/components/ui/api-error-state";
+import { PermissionGate } from "@/components/auth/permission-gate";
 import { CardListSkeleton } from "@/components/ui/loading-skeletons";
 import { useAuditEvents } from "@/lib/queries";
 import { usersById } from "@/lib/mocks/users";
@@ -32,6 +34,11 @@ import {
   Search,
   ScrollText,
   Server,
+  Workflow,
+  UserX,
+  Trash,
+  Key,
+  Activity,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -53,7 +60,20 @@ const actionMeta: Record<AuditAction, { icon: React.ComponentType<{ size?: numbe
   export_data: { icon: Download, label: "Export de données" },
   settings_change: { icon: SettingsIcon, label: "Paramètres" },
   permission_change: { icon: KeyRound, label: "Permissions" },
+  // Sprint 9 — n8n + GDPR
+  automation_run: { icon: Workflow, label: "Exécution automation" },
+  gdpr_delete_request: { icon: UserX, label: "Demande RGPD" },
+  gdpr_delete_executed: { icon: Trash, label: "Suppression RGPD exécutée" },
+  service_token_issued: { icon: Key, label: "Token de service émis" },
 };
+
+// Defensive default for any future audit action the API might emit before the
+// front-end ships an entry above. Prevents a crash that would take the whole
+// audit page down.
+const fallbackMeta = { icon: Activity, label: "Action" };
+function metaFor(action: AuditAction) {
+  return actionMeta[action] ?? fallbackMeta;
+}
 
 const severityClass: Record<AuditSeverity, { color: string; bg: string; ring: string }> = {
   info: { color: "text-info", bg: "bg-info-soft", ring: "ring-info/20" },
@@ -64,7 +84,15 @@ const severityClass: Record<AuditSeverity, { color: string; bg: string; ring: st
 type SeverityFilter = "all" | AuditSeverity;
 
 export default function AuditPage() {
-  const { data, isLoading } = useAuditEvents();
+  return (
+    <PermissionGate permission="view.audit">
+      <AuditContent />
+    </PermissionGate>
+  );
+}
+
+function AuditContent() {
+  const { data, error, isError, isLoading, refetch } = useAuditEvents();
   const [filter, setFilter] = useState<SeverityFilter>("all");
   const [search, setSearch] = useState("");
 
@@ -73,7 +101,7 @@ export default function AuditPage() {
       .filter((e) => (filter === "all" ? true : e.severity === filter))
       .filter((e) =>
         search
-          ? `${e.target} ${actionMeta[e.action].label}`.toLowerCase().includes(search.toLowerCase())
+          ? `${e.target} ${metaFor(e.action).label}`.toLowerCase().includes(search.toLowerCase())
           : true,
       );
   }, [data, filter, search]);
@@ -145,7 +173,9 @@ export default function AuditPage() {
           </div>
         </div>
 
-        {isLoading ? (
+        {isError ? (
+          <ApiErrorState error={error} onRetry={() => void refetch()} />
+        ) : isLoading ? (
           <div className="p-5">
             <CardListSkeleton rows={8} />
           </div>
@@ -171,7 +201,7 @@ export default function AuditPage() {
           <ul className="relative divide-y divide-white/[0.05]">
             {rows.map((e) => {
               const actor = usersById[e.actorId];
-              const meta = actionMeta[e.action];
+              const meta = metaFor(e.action);
               const Icon = meta.icon;
               const sev = severityClass[e.severity];
               return (

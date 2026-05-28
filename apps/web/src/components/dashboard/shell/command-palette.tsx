@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, type ComponentType } from "react";
 import { useRouter } from "next/navigation";
 import { useUIStore } from "@/lib/stores/ui-store";
 import {
@@ -29,13 +29,57 @@ import {
   Sparkles,
 } from "lucide-react";
 import { STATUS } from "@/lib/constants";
+import { can, canAccessRoute, type Permission } from "@/lib/rbac";
+import { useEffectiveRole } from "@/lib/use-rbac";
 
 const typeIcon = { article: FileText, video: Video, audio: Mic, social: Sparkles };
+
+const quickActions: Array<{
+  value: string;
+  label: string;
+  href: string;
+  shortcut?: string;
+  icon: ComponentType<{ className?: string }>;
+  permission: Permission;
+}> = [
+  {
+    value: "action nouveau contenu",
+    label: "Créer un nouveau contenu",
+    href: "/dashboard/contenus",
+    shortcut: "⌘N",
+    icon: Plus,
+    permission: "content.create",
+  },
+  {
+    value: "action upload",
+    label: "Uploader un média",
+    href: "/dashboard/medias",
+    icon: Upload,
+    permission: "media.upload",
+  },
+  {
+    value: "action invite",
+    label: "Inviter un utilisateur",
+    href: "/dashboard/utilisateurs",
+    icon: UserPlus,
+    permission: "user.invite",
+  },
+  {
+    value: "action automation",
+    label: "Créer une règle d'automatisation",
+    href: "/dashboard/automatisations",
+    icon: Zap,
+    permission: "automation.manage",
+  },
+];
 
 export function CommandPalette() {
   const router = useRouter();
   const open = useUIStore((s) => s.commandPaletteOpen);
   const setOpen = useUIStore((s) => s.setCommandPaletteOpen);
+  const role = useEffectiveRole();
+  const visibleNavItems = navItems.filter((item) => canAccessRoute(role, item.href));
+  const visibleQuickActions = quickActions.filter((action) => can(role, action.permission));
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -69,7 +113,7 @@ export function CommandPalette() {
         <CommandEmpty>Aucun résultat — essayez un autre terme.</CommandEmpty>
 
         <CommandGroup heading="Navigation">
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const Icon = item.icon;
             return (
               <CommandItem
@@ -91,31 +135,24 @@ export function CommandPalette() {
 
         <CommandSeparator />
 
-        <CommandGroup heading="Actions rapides">
-          <CommandItem
-            value="action nouveau contenu"
-            onSelect={() => go("/dashboard/contenus")}
-          >
-            <Plus />
-            <span>Créer un nouveau contenu</span>
-            <CommandShortcut>⌘N</CommandShortcut>
-          </CommandItem>
-          <CommandItem value="action upload" onSelect={() => go("/dashboard/medias")}>
-            <Upload />
-            <span>Uploader un média</span>
-          </CommandItem>
-          <CommandItem value="action invite" onSelect={() => go("/dashboard/utilisateurs")}>
-            <UserPlus />
-            <span>Inviter un utilisateur</span>
-          </CommandItem>
-          <CommandItem
-            value="action automation"
-            onSelect={() => go("/dashboard/automatisations")}
-          >
-            <Zap />
-            <span>Créer une règle d&apos;automatisation</span>
-          </CommandItem>
-        </CommandGroup>
+        {visibleQuickActions.length > 0 && (
+          <CommandGroup heading="Actions rapides">
+            {visibleQuickActions.map((action) => {
+              const Icon = action.icon;
+              return (
+                <CommandItem
+                  key={action.value}
+                  value={action.value}
+                  onSelect={() => go(action.href)}
+                >
+                  <Icon />
+                  <span>{action.label}</span>
+                  {action.shortcut && <CommandShortcut>{action.shortcut}</CommandShortcut>}
+                </CommandItem>
+              );
+            })}
+          </CommandGroup>
+        )}
 
         <CommandSeparator />
 

@@ -2,10 +2,9 @@ import { describe, expect, it } from "vitest";
 import { ExecutionContext, ForbiddenException } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import { RolesGuard } from "./roles.guard";
-import { ROLES_KEY, type AppRole } from "./roles.decorator";
+import { EXACT_ROLES_KEY, ROLES_KEY, type AppRole } from "./roles.decorator";
 
-function makeContext(role: AppRole | undefined, required: AppRole[] | undefined): ExecutionContext {
-  const reflector = new Reflector();
+function makeContext(role: AppRole | undefined): ExecutionContext {
   // We won't use reflector lookup directly; instead inject pre-set metadata via mock.
   return {
     getHandler: () => function handler() {},
@@ -16,16 +15,20 @@ function makeContext(role: AppRole | undefined, required: AppRole[] | undefined)
   } as unknown as ExecutionContext;
 }
 
-function makeReflectorStub(required?: AppRole[]): Reflector {
+function makeReflectorStub(required?: AppRole[], exact?: AppRole[]): Reflector {
   const stub = {
-    getAllAndOverride: (key: unknown) => (key === ROLES_KEY ? required : undefined),
+    getAllAndOverride: (key: unknown) => {
+      if (key === EXACT_ROLES_KEY) return exact;
+      if (key === ROLES_KEY) return required;
+      return undefined;
+    },
   };
   return stub as unknown as Reflector;
 }
 
-function guardWith(required: AppRole[] | undefined, role: AppRole | undefined) {
-  const guard = new RolesGuard(makeReflectorStub(required));
-  const ctx = makeContext(role, required);
+function guardWith(required: AppRole[] | undefined, role: AppRole | undefined, exact?: AppRole[]) {
+  const guard = new RolesGuard(makeReflectorStub(required, exact));
+  const ctx = makeContext(role);
   return () => guard.canActivate(ctx);
 }
 
@@ -61,5 +64,18 @@ describe("RolesGuard", () => {
   it("avec plusieurs roles requis prend le min rank", () => {
     expect(guardWith(["chief", "admin"], "chief")()).toBe(true);
     expect(() => guardWith(["chief", "admin"], "editor")()).toThrow(ForbiddenException);
+  });
+
+  it("ExactRoles autorise seulement les rôles listés sans promotion hiérarchique", () => {
+    expect(guardWith(undefined, "community_manager", ["community_manager", "admin"])()).toBe(true);
+    expect(guardWith(undefined, "admin", ["community_manager", "admin"])()).toBe(true);
+    expect(() => guardWith(undefined, "direction", ["community_manager", "admin"])()).toThrow(
+      ForbiddenException,
+    );
+  });
+
+  it("ExactRoles a priorité sur Roles quand les deux métadonnées existent", () => {
+    expect(() => guardWith(["editor"], "chief", ["admin"])()).toThrow(ForbiddenException);
+    expect(guardWith(["editor"], "admin", ["admin"])()).toBe(true);
   });
 });

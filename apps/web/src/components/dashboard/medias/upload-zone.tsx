@@ -40,7 +40,7 @@ function formatBytes(n: number): string {
   return `${n} o`;
 }
 
-export function UploadZone() {
+export function UploadZone({ canUpload = true }: { canUpload?: boolean }) {
   const [hover, setHover] = useState(false);
   const [items, setItems] = useState<UploadItem[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -85,10 +85,12 @@ export function UploadZone() {
   function onDrop(e: React.DragEvent<HTMLDivElement>) {
     e.preventDefault();
     setHover(false);
+    if (!canUpload) return;
     if (e.dataTransfer.files) addFiles(e.dataTransfer.files);
   }
   function onDragOver(e: React.DragEvent<HTMLDivElement>) {
     e.preventDefault();
+    if (!canUpload) return;
     setHover(true);
   }
   function onDragLeave() {
@@ -100,6 +102,7 @@ export function UploadZone() {
   }
 
   function loadDemo() {
+    if (!canUpload) return;
     addFiles([
       new File([], "Reportage_terrain_Dakar.mp4", { type: "video/mp4" }),
       new File([], "Photo_couverture.jpg", { type: "image/jpeg" }),
@@ -122,13 +125,17 @@ export function UploadZone() {
             : "ring-1 ring-dashed ring-white/[0.08] hover:bg-white/[0.025]",
         )}
         role="button"
-        tabIndex={0}
-        onClick={() => inputRef.current?.click()}
+        tabIndex={canUpload ? 0 : -1}
+        aria-disabled={!canUpload}
+        onClick={() => {
+          if (canUpload) inputRef.current?.click();
+        }}
       >
         <input
           ref={inputRef}
           type="file"
           multiple
+          disabled={!canUpload}
           className="sr-only"
           onChange={(e) => {
             if (e.target.files) addFiles(e.target.files);
@@ -146,31 +153,37 @@ export function UploadZone() {
           <CloudUpload size={24} />
         </span>
         <p className="mt-2 text-sm font-semibold text-text-primary">
-          {hover
-            ? "Déposez les fichiers pour les ajouter au DAM"
-            : "Glissez vos médias ici ou cliquez pour parcourir"}
+          {!canUpload
+            ? "Upload réservé aux équipes habilitées"
+            : hover
+              ? "Déposez les fichiers pour les ajouter au DAM"
+              : "Glissez vos médias ici ou cliquez pour parcourir"}
         </p>
         <p className="text-xs text-text-secondary">
-          Vidéos · Images · Audio · jusqu&apos;à 5 Go par fichier · transcription Whisper automatique
+          {canUpload
+            ? "Vidéos · Images · Audio · jusqu'à 5 Go par fichier · transcription Whisper automatique"
+            : "Vous pouvez consulter la médiathèque, mais votre rôle ne permet pas d'ajouter des fichiers."}
         </p>
         <div className="mt-2 flex items-center gap-2">
           <button
             type="button"
+            disabled={!canUpload}
             onClick={(e) => {
               e.stopPropagation();
-              inputRef.current?.click();
+              if (canUpload) inputRef.current?.click();
             }}
-            className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-xs font-medium text-text-primary transition hover:bg-white/[0.06]"
+            className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-xs font-medium text-text-primary transition hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-40"
           >
             Choisir des fichiers
           </button>
           <button
             type="button"
+            disabled={!canUpload}
             onClick={(e) => {
               e.stopPropagation();
               loadDemo();
             }}
-            className="rounded-lg border border-white/[0.08] bg-transparent px-3 py-1.5 text-xs font-medium text-text-secondary transition hover:bg-white/[0.04] hover:text-text-primary"
+            className="rounded-lg border border-white/[0.08] bg-transparent px-3 py-1.5 text-xs font-medium text-text-secondary transition hover:bg-white/[0.04] hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
           >
             Charger une démo
           </button>

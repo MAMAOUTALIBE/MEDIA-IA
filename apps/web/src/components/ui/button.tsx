@@ -18,6 +18,12 @@ const buttonVariants = cva(
         destructive:
           "bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30 dark:focus-visible:ring-destructive/40",
         link: "text-primary underline-offset-4 hover:underline",
+        // Premium variants — opt-in for CTAs and headline actions. They live
+        // alongside the default shadcn variants so existing UI is untouched.
+        glow:
+          "bg-gradient-to-r from-accent-blue to-accent-violet text-white shadow-glow-violet hover:-translate-y-0.5 hover:shadow-[0_0_44px_-8px_rgba(139,92,246,0.85)] active:translate-y-0",
+        glass:
+          "border border-white/[0.08] bg-white/[0.03] text-text-primary backdrop-blur hover:border-white/[0.16] hover:bg-white/[0.06]",
       },
       size: {
         default:

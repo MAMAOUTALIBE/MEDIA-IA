@@ -1,9 +1,12 @@
 import { Module } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
 import { ConfigModule } from "@nestjs/config";
+import { resolve } from "node:path";
 import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
 import { LoggerModule } from "nestjs-pino";
 
+import { CommonModule } from "./common/common.module";
+import { validateEnv } from "./common/env.validation";
 import { PrismaModule } from "./prisma/prisma.module";
 import { PublishingModule } from "./publishing/publishing.module";
 import { MetricsModule } from "./metrics/metrics.module";
@@ -28,13 +31,38 @@ import { AuthModule } from "./auth/auth.module";
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true, cache: true }),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      cache: true,
+      // Load monorepo root .env first, then apps/api/.env if present (override).
+      // Without this, ConfigModule would look only at process cwd (apps/api/)
+      // where no .env exists, and silently rely on shell-inherited env.
+      envFilePath: [resolve(__dirname, "../../../.env"), resolve(__dirname, "../.env")],
+      // Throws in production if required env vars are missing/invalid,
+      // warns only in development to keep DX smooth.
+      validate: validateEnv,
+    }),
     ThrottlerModule.forRoot([
-      { name: "default", ttl: 60_000, limit: 100 }, // 100 req/min/IP par défaut
+      // Buckets — controllers opt into stricter ones via @Throttle({ name: ... })
+      { name: "default", ttl: 60_000, limit: 100 }, // 100 req/min/IP
+      { name: "auth", ttl: 60_000, limit: 5 }, // 5 logins/min/IP — brute-force shield
+      { name: "ai", ttl: 60_000, limit: 30 }, // 30 LLM calls/min/IP — cost shield
+      { name: "media-upload", ttl: 60_000, limit: 20 }, // 20 presigns/min/IP
     ]),
     LoggerModule.forRoot({
       pinoHttp: {
         level: process.env.LOG_LEVEL ?? "info",
+        // Reuse the request id propagated by RequestIdMiddleware so logs, the
+        // X-Request-Id response header, and the ProblemDetails envelope all
+        // share the same correlation id end-to-end.
+        genReqId: (req, res) => {
+          const fromMw = (req as { id?: string }).id;
+          if (fromMw) return fromMw;
+          const hdr = req.headers["x-request-id"];
+          const id = (Array.isArray(hdr) ? hdr[0] : hdr) || crypto.randomUUID();
+          res.setHeader("X-Request-Id", id);
+          return id;
+        },
         transport:
           process.env.NODE_ENV !== "production"
             ? { target: "pino-pretty", options: { singleLine: true, colorize: true } }
@@ -48,6 +76,7 @@ import { AuthModule } from "./auth/auth.module";
         },
       },
     }),
+    CommonModule,
     PrismaModule,
     PublishingModule,
     MetricsModule,

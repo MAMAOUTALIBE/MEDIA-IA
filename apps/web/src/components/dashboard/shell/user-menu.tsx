@@ -5,6 +5,7 @@ import { InitialsAvatar } from "@/components/ui/initials-avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -30,7 +31,10 @@ export function UserMenu() {
   return (
     <>
       <DropdownMenu>
-        <DropdownMenuTrigger className="relative inline-flex shrink-0 rounded-full p-0.5 outline-none transition hover:opacity-90 focus-visible:ring-2 focus-visible:ring-accent-violet">
+        <DropdownMenuTrigger
+          aria-label="Menu utilisateur"
+          className="relative inline-flex shrink-0 rounded-full p-0.5 outline-none transition hover:opacity-90 focus-visible:ring-2 focus-visible:ring-accent-violet"
+        >
           <InitialsAvatar initials={user.initials} color={user.color} size={36} />
           {isAuthenticated && (
             <span
@@ -45,25 +49,27 @@ export function UserMenu() {
           align="end"
           className="w-64 border-white/10 bg-popover/95 backdrop-blur-xl"
         >
-          <DropdownMenuLabel>
-            <div className="flex items-center gap-3 px-1 py-1">
-              <InitialsAvatar initials={user.initials} color={user.color} size={36} />
-              <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-text-primary">{user.name}</p>
-                <p className="truncate text-xs text-text-secondary">{role.label}</p>
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>
+              <div className="flex items-center gap-3 px-1 py-1">
+                <InitialsAvatar initials={user.initials} color={user.color} size={36} />
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-text-primary">{user.name}</p>
+                  <p className="truncate text-xs text-text-secondary">{role.label}</p>
+                </div>
               </div>
-            </div>
-            <div className="mt-2 rounded-md bg-white/[0.04] px-2 py-1 text-[10px]">
-              {isAuthenticated ? (
-                <span className="text-success">
-                  <ShieldCheck size={9} className="mr-1 inline" />
-                  Connecté JWT
-                </span>
-              ) : (
-                <span className="text-text-muted">Mode démo · non authentifié</span>
-              )}
-            </div>
-          </DropdownMenuLabel>
+              <div className="mt-2 rounded-md bg-white/[0.04] px-2 py-1 text-[10px]">
+                {isAuthenticated ? (
+                  <span className="text-success">
+                    <ShieldCheck size={9} className="mr-1 inline" />
+                    Connecté JWT
+                  </span>
+                ) : (
+                  <span className="text-text-muted">Mode démo · non authentifié</span>
+                )}
+              </div>
+            </DropdownMenuLabel>
+          </DropdownMenuGroup>
           <DropdownMenuSeparator />
           <DropdownMenuItem>
             <UserRound size={16} className="mr-2" />
@@ -77,7 +83,9 @@ export function UserMenu() {
           {isAuthenticated ? (
             <DropdownMenuItem
               className="text-danger focus:text-danger"
-              onClick={() => logout()}
+              onClick={() => {
+                void logout();
+              }}
             >
               <LogOut size={16} className="mr-2" />
               Se déconnecter

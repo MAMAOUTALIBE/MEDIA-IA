@@ -10,12 +10,22 @@ import type { Role } from "@/types";
 import { Plus, Search, MoreHorizontal, UserX2 } from "lucide-react";
 import { formatRelative } from "@/lib/format";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ApiErrorState } from "@/components/ui/api-error-state";
+import { PermissionGate } from "@/components/auth/permission-gate";
 import { TableSkeleton } from "@/components/ui/loading-skeletons";
 
 type Filter = "all" | Role;
 
 export default function UtilisateursPage() {
-  const { data, isLoading } = useUsers();
+  return (
+    <PermissionGate permission="view.users">
+      <UtilisateursContent />
+    </PermissionGate>
+  );
+}
+
+function UtilisateursContent() {
+  const { data, error, isError, isLoading, refetch } = useUsers();
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
 
@@ -130,7 +140,8 @@ export default function UtilisateursPage() {
               ))}
             </tbody>
           </table>
-          {!isLoading && rows.length === 0 && (
+          {isError && <ApiErrorState error={error} onRetry={() => void refetch()} />}
+          {!isError && !isLoading && rows.length === 0 && (
             <EmptyState
               icon={UserX2}
               title="Aucun utilisateur ne correspond"
@@ -149,7 +160,7 @@ export default function UtilisateursPage() {
               }
             />
           )}
-          {isLoading && (
+          {!isError && isLoading && (
             <div className="p-4">
               <TableSkeleton rows={8} columns={5} />
             </div>

@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from "react";
 import { GlassCard } from "@/components/ui/glass-card";
+import { ApiErrorState } from "@/components/ui/api-error-state";
 import { useCalendarEvents } from "@/lib/queries";
 import type { CalendarEvent } from "@/types";
 import { CHANNELS } from "@/lib/constants";
@@ -22,7 +23,7 @@ import { cn } from "@/lib/utils";
 import { DayDetailSheet } from "@/components/dashboard/calendrier/day-detail-sheet";
 
 export default function CalendrierPage() {
-  const { data } = useCalendarEvents();
+  const { data, error, isError, refetch } = useCalendarEvents();
   const [cursor, setCursor] = useState(new Date("2026-05-15"));
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
   const monthLabel = format(cursor, "MMMM yyyy", { locale: fr });
@@ -82,6 +83,10 @@ export default function CalendrierPage() {
           </div>
           <p className="text-base font-semibold capitalize text-text-primary">{monthLabel}</p>
         </div>
+        {isError ? (
+          <ApiErrorState error={error} onRetry={() => void refetch()} />
+        ) : (
+        <>
         <div className="grid grid-cols-7 border-b border-white/[0.06] bg-white/[0.02] text-[10px] uppercase tracking-wider text-text-muted">
           {["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"].map((d) => (
             <div key={d} className="px-3 py-2 text-center font-semibold">
@@ -143,9 +148,11 @@ export default function CalendrierPage() {
             );
           })}
         </div>
+        </>
+        )}
       </GlassCard>
 
-      <DayDetailSheet
+      {!isError && <DayDetailSheet
         date={selectedDay}
         events={
           selectedDay
@@ -155,7 +162,7 @@ export default function CalendrierPage() {
         onOpenChange={(o) => {
           if (!o) setSelectedDay(null);
         }}
-      />
+      />}
     </div>
   );
 }
