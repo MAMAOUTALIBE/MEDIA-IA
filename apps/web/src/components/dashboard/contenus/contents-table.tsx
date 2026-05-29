@@ -77,6 +77,7 @@ export function ContentsTable() {
               <th className="px-4 py-3 font-medium">Auteur</th>
               <th className="px-4 py-3 font-medium">Type</th>
               <th className="px-4 py-3 font-medium">Statut</th>
+              <th className="px-4 py-3 font-medium">Tags IA</th>
               <th className="px-4 py-3 font-medium">Canaux</th>
               <th className="px-4 py-3 font-medium">Mis à jour</th>
             </tr>
@@ -92,7 +93,12 @@ export function ContentsTable() {
                 >
                   <td className="px-4 py-3">
                     <p className="line-clamp-1 font-medium text-text-primary">{c.title}</p>
-                    <p className="mt-0.5 line-clamp-1 text-xs text-text-secondary">{c.excerpt}</p>
+                    <p
+                      className="mt-0.5 line-clamp-1 text-xs text-text-secondary"
+                      title={c.summary ?? c.excerpt}
+                    >
+                      {c.summary ?? c.excerpt}
+                    </p>
                   </td>
                   <td className="px-4 py-3">
                     {author ? (
@@ -107,6 +113,30 @@ export function ContentsTable() {
                   <td className="px-4 py-3 text-xs text-text-secondary">{typeLabel[c.type]}</td>
                   <td className="px-4 py-3">
                     <StatusBadge status={c.status} />
+                  </td>
+                  <td className="px-4 py-3">
+                    {c.tags && c.tags.length > 0 ? (
+                      <div className="flex flex-wrap items-center gap-1">
+                        {c.tags.slice(0, 3).map((tag) => (
+                          <span
+                            key={tag}
+                            className="rounded-full bg-accent-violet/15 px-2 py-0.5 text-[10px] font-medium text-accent-violet ring-1 ring-accent-violet/25"
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                        {c.tags.length > 3 && (
+                          <span
+                            className="text-[10px] text-text-muted"
+                            title={c.tags.slice(3).join(", ")}
+                          >
+                            +{c.tags.length - 3}
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-[11px] text-text-muted">—</span>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1">
@@ -146,7 +176,7 @@ export function ContentsTable() {
         )}
         {!isError && isLoading && (
           <div className="p-4">
-            <TableSkeleton rows={8} columns={6} />
+            <TableSkeleton rows={8} columns={7} />
           </div>
         )}
       </div>

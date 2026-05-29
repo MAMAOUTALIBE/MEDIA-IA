@@ -73,6 +73,10 @@ export interface Content {
   thumbnail?: string;
   views?: number;
   engagement?: number;
+  // Sprint 9 — n8n auto-tagging via Claude/Groq. Posés par PATCH /contents/:id/tags
+  // depuis le rôle service_automation, jamais par un humain.
+  tags?: string[];
+  summary?: string | null;
 }
 
 export interface PendingContent {
