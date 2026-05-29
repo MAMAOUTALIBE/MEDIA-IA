@@ -1,0 +1,73 @@
+# =============================================================================
+# CMR · Sprint A — n8n Ingress (admin only)
+# =============================================================================
+# Le panel d'admin n8n est exposé sur `n8n.cmr.gmd2025.org` mais IL N'EST PAS
+# accessible depuis l'Internet ouvert. Deux verrous superposés :
+#
+#  1. IP allowlist (annotation nginx) — restreint au VPN admin gouv +
+#     bureau bastion.
+#  2. NetworkPolicy (60-networkpolicy.yaml) — refuse tout pod hors du
+#     namespace ingress-nginx.
+#
+# L'IP allowlist ici est la **liste de production**. Avant `kubectl apply`,
+# l'admin réseau confirme la liste vs le pare-feu corporate.
+# (Plage RFC1918 explicitement REFUSÉE ici parce qu'on est en cluster managed
+# avec node-to-pod direct routing — un pod compromis du namespace `default`
+# ne doit PAS pouvoir hit le webhook par l'ingress.)
+#
+# Webhooks externes (Meta/YouTube/Slack callbacks) : Sprint C ajoutera un
+# second Ingress `webhook.cmr.gmd2025.org` sans allowlist mais avec WAF strict
+# + validation HMAC signature avant que le requête atteigne n8n.
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: n8n
+  namespace: cmr-automation
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+
+    # --- Allowlist (à compléter par l'admin réseau)
+    # Format: CIDRs séparés par virgule.
+    nginx.ingress.kubernetes.io/whitelist-source-range: |
+      10.42.0.0/16,
+      192.0.2.0/24
+
+    # --- Hardening HTTP
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "16m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"   # SSE longues
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+
+    # --- WebSocket support (n8n UI utilise WS pour le live editor)
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+
+    # --- En-têtes sécurité
+    nginx.ingress.kubernetes.io/server-snippet: |
+      add_header X-Frame-Options "DENY" always;
+      add_header X-Content-Type-Options "nosniff" always;
+      add_header Referrer-Policy "no-referrer" always;
+      add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
+
+    # --- Rate limit (durci côté gouv — n8n UI = pas grand monde)
+    nginx.ingress.kubernetes.io/limit-rps: "20"
+    nginx.ingress.kubernetes.io/limit-connections: "10"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [n8n.cmr.gmd2025.org]
+      secretName: n8n-tls
+  rules:
+    - host: n8n.cmr.gmd2025.org
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: n8n
+                port:
+                  number: 80

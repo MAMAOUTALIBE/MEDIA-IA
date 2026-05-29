@@ -379,6 +379,72 @@ Une ligne, ~3 minutes, et c'est en prod.
 - ✅ Right-to-be-forgotten endpoints `/api/gdpr/deletion-requests/*` (4-eyes principle)
 - ✅ Migration `20260529_content_tags_summary` (colonnes `tags String[]` + `summary String?` sur `Content` + index GIN)
 
+### Sprint A — activation via `docker compose --profile automation` (2026-05-29)
+
+Avant Sprint A, `n8n-app` tournait en `docker run` standalone, hors compose. Maintenant il est un service du repo (`docker-compose.yml` § `n8n` + `proxy-n8n`), profilé `automation` — donc il ne démarre que si on l'active explicitement.
+
+**Migration depuis le `n8n-app` manuel (à faire UNE FOIS sur le VPS)** :
+
+```bash
+ssh root@187.127.228.197
+
+# 1. Stop l'ancien container manuel + récupère son volume (rename, pas suppression)
+docker stop n8n-app || true
+docker rename n8n-app n8n-app-legacy
+
+# 2. Dans /opt/cmr/.env, ajouter les variables n8n (voir .env.production.template § n8n)
+#    Variables OBLIGATOIRES :
+#      N8N_HOST, N8N_WEBHOOK_URL, N8N_IP_ALLOWLIST,
+#      N8N_DB_PASSWORD, N8N_ENCRYPTION_KEY (réutilise celle de l'ancien container !),
+#      N8N_USER_MGMT_JWT_SECRET, N8N_CMR_API_TOKEN, CMR_API_BASE_URL
+#
+#    ⚠️ La N8N_ENCRYPTION_KEY doit être IDENTIQUE à celle du n8n-app legacy,
+#       sinon tous les credentials enregistrés (YouTube, Anthropic, …) deviennent
+#       irrécupérables. Récupère-la via :
+#         docker exec n8n-app-legacy env | grep N8N_ENCRYPTION_KEY
+
+# 3. Bootstrap Postgres pour n8n_data (si pas encore fait)
+#    Si le volume cmr-pg-data est neuf, le script tourne automatiquement.
+#    Sinon, force la création :
+docker compose exec postgres bash /docker-entrypoint-initdb.d/10-n8n.sh
+
+# 4. Active le profil automation
+cd /opt/cmr
+docker compose --profile app --profile automation pull n8n proxy-n8n
+docker compose --profile app --profile automation up -d n8n proxy-n8n
+
+# 5. Vérifie
+docker compose ps n8n proxy-n8n
+docker compose logs --tail=50 n8n
+curl -sf https://n8n.cmr.gmd2025.org/healthz   # depuis le VPS, ou un host dans N8N_IP_ALLOWLIST
+
+# 6. Une fois validé, supprime le container legacy
+docker rm n8n-app-legacy
+```
+
+**DNS** : ajouter un A-record `n8n.cmr.gmd2025.org → 187.127.228.197` dans hPanel Hostinger AVANT le `docker compose up` — Traefik a besoin de résoudre l'hostname pour émettre le cert Let's Encrypt.
+
+**Rotation du token CMR_API_TOKEN** : encore manuelle en Sprint A (cron K8s = Sprint D). Toutes les 12 h, sur le VPS :
+
+```bash
+ADMIN_JWT=$(curl -fsS -X POST https://api.cmr.gmd2025.org/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d "{\"email\":\"$SEED_ADMIN_EMAIL\",\"password\":\"$SEED_PASSWORD\"}" \
+  | python3 -c "import sys,json;print(json.load(sys.stdin)['token'])")
+
+NEW=$(curl -fsS -X POST https://api.cmr.gmd2025.org/api/auth/service-token \
+  -H "Authorization: Bearer $ADMIN_JWT" \
+  -H "Content-Type: application/json" \
+  -d '{"label":"n8n-prod","ttlSeconds":43200}' \
+  | python3 -c "import sys,json;print(json.load(sys.stdin)['token'])")
+
+sed -i.bak "s|^N8N_CMR_API_TOKEN=.*|N8N_CMR_API_TOKEN=$NEW|" /opt/cmr/.env
+docker compose --profile automation up -d n8n   # picks up new env, hot restart
+unset NEW ADMIN_JWT
+```
+
+(Pour mémoire : la **même** stack n8n est livrée en manifests K8s dans `infra/k8s/n8n/` pour la migration cluster gouv à venir — voir [infra/k8s/n8n/README.md](../infra/k8s/n8n/README.md).)
+
 ### Mint un service-token pour n8n
 
 ```bash

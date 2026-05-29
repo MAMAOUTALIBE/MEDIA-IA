@@ -187,6 +187,18 @@ spec:
       ports:
         - protocol: TCP
           port: 4000
+    # n8n (service_automation only — enforced côté API via @ExactRoles)
+    # Sprint A : ouvre le canal réseau ; l'autorisation reste applicative.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: cmr-automation
+          podSelector:
+            matchLabels:
+              app: n8n
+      ports:
+        - protocol: TCP
+          port: 4000
   egress:
     # DNS
     - to:

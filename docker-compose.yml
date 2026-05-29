@@ -7,8 +7,16 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-cmr}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
       POSTGRES_DB: ${POSTGRES_DB:-cmr_dev}
+      # Consumed by infra/postgres-init/10-n8n.sql at first boot.
+      # If you join an existing Postgres volume, the init script does NOT
+      # re-run — bootstrap the n8n DB manually (see infra/postgres-init/README).
+      N8N_DB_NAME: ${N8N_DB_NAME:-n8n_data}
+      N8N_DB_USER: ${N8N_DB_USER:-n8n_user}
+      N8N_DB_PASSWORD: ${N8N_DB_PASSWORD:-changeme-n8n}
     volumes:
       - cmr-pg-data:/var/lib/postgresql/data
+      # docker-entrypoint-initdb.d runs ONLY on a fresh data volume.
+      - ./infra/postgres-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cmr} -d ${POSTGRES_DB:-cmr_dev}"]
       interval: 5s
@@ -128,10 +136,117 @@ services:
       - "traefik.http.routers.proxyweb.service=proxyweb-svc"
       - "traefik.http.services.proxyweb-svc.loadbalancer.server.port=80"
 
+  # ─────────────────────────────────────────────────────────────────────────
+  # n8n — Sprint A foundations (profile: automation)
+  # Enable with: docker compose --profile app --profile automation up -d
+  # ─────────────────────────────────────────────────────────────────────────
+  # Single-process mode (queue mode = Sprint D). Shares the cmr-pg instance
+  # but writes to a separate database (`n8n_data`) owned by `n8n_user`, which
+  # has NO grants on the CMR application schema — see infra/postgres-init/10-n8n.sql.
+  #
+  # All sovereignty flags from infra/k8s/n8n/40-deployment.yaml are duplicated
+  # here intentionally: same hardening in dev/staging as in K8s prod.
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:1.74.0
+    container_name: cmr-n8n
+    restart: unless-stopped
+    profiles: ["automation"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Public addressing
+      N8N_HOST: ${N8N_HOST:-n8n.cmr.gmd2025.org}
+      N8N_PORT: "5678"
+      N8N_PROTOCOL: https
+      WEBHOOK_URL: ${N8N_WEBHOOK_URL:-https://n8n.cmr.gmd2025.org/}
+      GENERIC_TIMEZONE: ${TZ:-Europe/Paris}
+
+      # Sovereignty: no phone-home, no community packages
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_PERSONALIZATION_ENABLED: "false"
+      N8N_VERSION_NOTIFICATIONS_ENABLED: "false"
+      N8N_TEMPLATES_ENABLED: "false"
+      N8N_HIRING_BANNER_ENABLED: "false"
+      N8N_COMMUNITY_PACKAGES_ENABLED: "false"
+
+      # Security
+      N8N_SECURE_COOKIE: "true"
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "true"
+      N8N_DISABLE_PRODUCTION_MAIN_PROCESS_ENV: "true"
+      N8N_RUNNERS_ENABLED: "true"
+
+      # Postgres persistence
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: "5432"
+      DB_POSTGRESDB_DATABASE: ${N8N_DB_NAME:-n8n_data}
+      DB_POSTGRESDB_SCHEMA: n8n_data
+      DB_POSTGRESDB_USER: ${N8N_DB_USER:-n8n_user}
+      DB_POSTGRESDB_PASSWORD: ${N8N_DB_PASSWORD:-changeme-n8n}
+
+      # Secret material (DO NOT default these in prod — fail loud if missing)
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      N8N_USER_MANAGEMENT_JWT_SECRET: ${N8N_USER_MGMT_JWT_SECRET}
+
+      # Execution pruning
+      EXECUTIONS_DATA_PRUNE: "true"
+      EXECUTIONS_DATA_MAX_AGE: "336"   # 14 days
+      EXECUTIONS_DATA_SAVE_ON_SUCCESS: all
+      EXECUTIONS_DATA_SAVE_ON_ERROR: all
+      EXECUTIONS_DATA_SAVE_ON_PROGRESS: "false"
+
+      # Metrics + logs
+      N8N_METRICS: "true"
+      N8N_METRICS_PREFIX: "n8n_"
+      N8N_LOG_LEVEL: ${N8N_LOG_LEVEL:-info}
+      N8N_LOG_OUTPUT: console
+      N8N_LOG_FILE_FORMAT: json
+
+      # Bridge to CMR API — token is admin-minted via POST /auth/service-token
+      CMR_API_BASE_URL: ${CMR_API_BASE_URL:-https://api.cmr.gmd2025.org/api}
+      CMR_API_TOKEN: ${N8N_CMR_API_TOKEN}
+    volumes:
+      - cmr-n8n-data:/home/node/.n8n
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:5678/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  proxy-n8n:
+    image: nginx:alpine
+    container_name: cmr-proxy-n8n
+    restart: unless-stopped
+    profiles: ["automation"]
+    depends_on:
+      - n8n
+    volumes:
+      - ./infra/nginx-proxy/n8n.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - default
+      - traefik
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik"
+      - "traefik.http.routers.proxyn8n.rule=Host(`${N8N_HOST:-n8n.cmr.gmd2025.org}`)"
+      - "traefik.http.routers.proxyn8n.entrypoints=websecure"
+      - "traefik.http.routers.proxyn8n.tls=true"
+      - "traefik.http.routers.proxyn8n.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.proxyn8n.service=proxyn8n-svc"
+      - "traefik.http.services.proxyn8n-svc.loadbalancer.server.port=80"
+      # IP allowlist en attendant un middleware Traefik plus complet.
+      # Format: "192.0.2.0/24,10.42.0.0/16" — l'absence de la valeur laisse
+      # l'admin n8n exposé publiquement, ce qui est NON SOUHAITÉ en prod.
+      - "traefik.http.middlewares.n8n-ipallowlist.ipallowlist.sourcerange=${N8N_IP_ALLOWLIST:-127.0.0.1/32}"
+      - "traefik.http.routers.proxyn8n.middlewares=n8n-ipallowlist@docker"
+
 volumes:
   cmr-pg-data:
   cmr-redis-data:
   cmr-minio-data:
+  cmr-n8n-data:
 
 networks:
   traefik:

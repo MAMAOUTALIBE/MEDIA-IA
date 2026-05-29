@@ -1,0 +1,118 @@
+# =============================================================================
+# CMR · Sprint A — n8n NetworkPolicy strict
+# =============================================================================
+# Modèle "deny par défaut, allow explicite". N8N-PLAN §4.1 mot pour mot, sauf
+# les ports et noms de namespaces ajustés au cluster CMR.
+#
+# Pourquoi ce niveau de paranoïa :
+#   - n8n exécute du code Node arbitraire défini dans les workflows. Un opérateur
+#     compromis qui crée un workflow `axios.get("http://postgres:5432/...")`
+#     contournerait toute logique applicative SI le pod n8n avait du libre
+#     accès réseau.
+#   - L'égress est limité à 3 cibles : `cmr-api`, `postgres` (schema n8n_data),
+#     egress-gateway pour Internet contrôlé.
+#   - L'ingress est limité à 2 sources : ingress-controller (UI/webhooks),
+#     prometheus (scrape /metrics).
+#
+# Prérequis labels (l'admin cluster doit les avoir posés) :
+#   - namespace ingress-nginx       : { name: ingress-nginx }
+#   - namespace observability       : { name: observability }
+#   - namespace egress-gw           : { name: egress-gw }
+#   - pod postgres (statefulset)    : { app: postgres }
+#   - pod cmr-api (deployment)      : { app: cmr-api }
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: n8n-isolated
+  namespace: cmr-automation
+spec:
+  podSelector:
+    matchLabels:
+      app: n8n
+  policyTypes: [Ingress, Egress]
+
+  ingress:
+    # 1. UI + webhooks via ingress-controller
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+      ports:
+        - { protocol: TCP, port: 5678 }
+
+    # 2. Prometheus scrape /metrics
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: observability
+      ports:
+        - { protocol: TCP, port: 5678 }
+
+  egress:
+    # 1. DNS interne (toujours indispensable)
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+
+    # 2. API CMR — la SEULE façon pour n8n de toucher la DB applicative.
+    # Le cross-namespace est explicite : on cible le namespace `cmr` ET le pod
+    # `app: cmr-api` (sans namespace, le selector matcherait n'importe quel pod
+    # dans cmr-automation ayant ce label).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: cmr
+          podSelector:
+            matchLabels:
+              app: cmr-api
+      ports:
+        - { protocol: TCP, port: 4000 }
+
+    # 3. Postgres — mais uniquement pour le user n8n_user (enforced côté DB).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: cmr
+          podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - { protocol: TCP, port: 5432 }
+
+    # 4. Egress gateway — toute sortie Internet doit passer par là.
+    # La gateway elle-même tient la DNS-allowlist (api.anthropic.com,
+    # googleapis.com, etc. — N8N-PLAN §4.2).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: egress-gw
+      ports:
+        - { protocol: TCP, port: 443 }
+
+# -----------------------------------------------------------------------------
+# Defense-in-depth bonus : refuser tout ingress sur les ports DB/Redis/MinIO
+# depuis l'intérieur du namespace cmr-automation (au cas où un futur side-car
+# tenterait de bypass l'API). Pas strictement nécessaire si l'API est correcte,
+# mais coût zéro à écrire.
+# -----------------------------------------------------------------------------
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: n8n-default-deny-all
+  namespace: cmr-automation
+spec:
+  # podSelector vide = applique à tous les pods du namespace.
+  # Cumulé avec la policy ci-dessus (les NetworkPolicy s'additionnent).
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  # Pas de règles ⇒ deny tout.
+  # Les pods qui ont besoin de trafic doivent avoir une policy explicite
+  # (comme `n8n-isolated`). Tout nouveau workload n8n-adjacent (worker queue,
+  # cron rotation token) devra écrire sa propre policy.

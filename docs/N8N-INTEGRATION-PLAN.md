@@ -297,11 +297,18 @@ Règles Prometheus :
 
 ## 8. Plan d'implémentation (sprint-based)
 
-### Sprint A — Bootstrap (1 sem)
-- [ ] Déployer n8n en namespace `cmr-automation` avec manifests K8s
-- [ ] NetworkPolicy + ingress nginx + cert TLS
-- [ ] Postgres schema `n8n_data` + user dédié
+### Sprint A — Bootstrap (1 sem) — ✅ shipped 2026-05-29
+- [x] Déployer n8n en namespace `cmr-automation` avec manifests K8s
+      → [infra/k8s/n8n/](../../infra/k8s/n8n/) + docker-compose profile `automation`
+- [x] NetworkPolicy + ingress nginx + cert TLS
+      → [60-networkpolicy.yaml](../../infra/k8s/n8n/60-networkpolicy.yaml) (deny-default + 4 explicit allows)
+      → [50-ingress.yaml](../../infra/k8s/n8n/50-ingress.yaml) (IP allowlist + HSTS + WS upgrade)
+- [x] Postgres schema `n8n_data` + user dédié
+      → [10-postgres-init-job.yaml](../../infra/k8s/n8n/10-postgres-init-job.yaml) (K8s)
+      → [infra/postgres-init/10-n8n.sh](../../infra/postgres-init/10-n8n.sh) (compose)
 - [ ] Vault Agent sidecar pour secrets
+      → reporté Sprint D ; pour l'instant Secrets gérés à la main via
+        [20-secrets-template.yaml](../../infra/k8s/n8n/20-secrets-template.yaml)
 
 ### Sprint B — Auth & Audit (1 sem)
 - [ ] Ajouter rôle `service_automation` dans Prisma + roles.guard

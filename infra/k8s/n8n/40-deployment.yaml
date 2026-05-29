@@ -1,0 +1,215 @@
+# =============================================================================
+# CMR · Sprint A — n8n Deployment + Service
+# =============================================================================
+# Mode : single-process (queue mode = Sprint D production hardening).
+# Image épinglée à un tag stable (NEVER `latest`) ; mise à jour via PR explicite.
+# n8nio/n8n:1.74 — dernière LTS au moment de Sprint 9.
+#
+# Hardening (N8N-PLAN §4.4) :
+#   - runAsNonRoot UID 1000 (l'image n8n a déjà cet utilisateur)
+#   - readOnlyRootFilesystem + emptyDir pour /tmp seulement (le PVC sert le
+#     reste)
+#   - dropAll caps + seccomp RuntimeDefault
+#   - allowPrivilegeEscalation: false
+#
+# Pas de queue mode → 1 replica seul (sinon le PVC ReadWriteOnce bloque
+# le rollout). Le Recreate strategy évite la condition de course classique
+# "ancien pod tient encore le volume" qui paralyse les nouveaux pods.
+#
+# Souveraineté (N8N-PLAN §9) :
+#   - N8N_DIAGNOSTICS_ENABLED=false  → pas de phone-home
+#   - N8N_PERSONALIZATION_ENABLED=false  → pas de wizard cloud
+#   - N8N_VERSION_NOTIFICATIONS_ENABLED=false
+#   - N8N_TEMPLATES_ENABLED=false  → pas d'appel à api.n8n.io
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: n8n
+  namespace: cmr-automation
+  labels:
+    app: n8n
+    component: orchestrator
+    tier: automation
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: n8n
+  template:
+    metadata:
+      labels:
+        app: n8n
+        component: orchestrator
+        tier: automation
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "5678"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: default
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      # Le Job n8n-pg-init doit avoir tourné avant — sinon n8n crash au boot
+      # parce qu'il n'arrive pas à se connecter avec n8n_user.
+      initContainers:
+        - name: wait-for-pg-init
+          image: bitnami/kubectl:1.31
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              echo "→ waiting for n8n-pg-init Job to complete..."
+              kubectl wait --for=condition=complete \
+                --timeout=300s \
+                job/n8n-pg-init \
+                -n cmr-automation
+              echo "✓ pg-init done"
+      containers:
+        - name: n8n
+          image: docker.n8n.io/n8nio/n8n:1.74.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 5678
+              protocol: TCP
+          env:
+            # --- Connectivité publique
+            - { name: N8N_HOST,         value: n8n.cmr.gmd2025.org }
+            - { name: N8N_PORT,         value: "5678" }
+            - { name: N8N_PROTOCOL,     value: https }
+            - { name: WEBHOOK_URL,      value: https://n8n.cmr.gmd2025.org/ }
+            - { name: GENERIC_TIMEZONE, value: Europe/Paris }
+
+            # --- Souveraineté : aucun phone-home autorisé
+            - { name: N8N_DIAGNOSTICS_ENABLED,           value: "false" }
+            - { name: N8N_PERSONALIZATION_ENABLED,       value: "false" }
+            - { name: N8N_VERSION_NOTIFICATIONS_ENABLED, value: "false" }
+            - { name: N8N_TEMPLATES_ENABLED,             value: "false" }
+            - { name: N8N_HIRING_BANNER_ENABLED,         value: "false" }
+
+            # --- Sécurité runtime
+            - { name: N8N_SECURE_COOKIE,                 value: "true"  }
+            - { name: N8N_BLOCK_ENV_ACCESS_IN_NODE,      value: "true"  }
+            - { name: N8N_DISABLE_PRODUCTION_MAIN_PROCESS_ENV, value: "true" }
+            - { name: N8N_RUNNERS_ENABLED,               value: "true"  }
+            # community-nodes interdits côté gouv (N8N-PLAN §9.7)
+            - { name: N8N_COMMUNITY_PACKAGES_ENABLED,    value: "false" }
+
+            # --- Persistance Postgres
+            - { name: DB_TYPE,                           value: postgresdb }
+            - { name: DB_POSTGRESDB_HOST,                value: postgres.cmr.svc.cluster.local }
+            - { name: DB_POSTGRESDB_PORT,                value: "5432" }
+            - { name: DB_POSTGRESDB_DATABASE,            value: n8n_data }
+            - { name: DB_POSTGRESDB_SCHEMA,              value: n8n_data }
+            - { name: DB_POSTGRESDB_USER,                value: n8n_user }
+            - name: DB_POSTGRESDB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: n8n-db-creds
+                  key: password
+
+            # --- Chiffrement credentials (perdu = credentials irrécupérables)
+            - name: N8N_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: n8n-encryption
+                  key: encryption-key
+
+            # --- JWT admin UI (rotatable indépendamment du JWT API CMR)
+            - name: N8N_USER_MANAGEMENT_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: n8n-user-mgmt-jwt
+                  key: jwt-secret
+
+            # --- Pruning des exécutions (audit chain compte côté CMR, pas n8n)
+            - { name: EXECUTIONS_DATA_PRUNE,             value: "true" }
+            - { name: EXECUTIONS_DATA_MAX_AGE,           value: "336"  } # 14j
+            - { name: EXECUTIONS_DATA_SAVE_ON_SUCCESS,   value: "all"  }
+            - { name: EXECUTIONS_DATA_SAVE_ON_ERROR,     value: "all"  }
+            - { name: EXECUTIONS_DATA_SAVE_ON_PROGRESS,  value: "false" }
+
+            # --- Métriques Prometheus (N8N-PLAN §7.1)
+            - { name: N8N_METRICS,                       value: "true" }
+            - { name: N8N_METRICS_PREFIX,                value: "n8n_" }
+
+            # --- Logs structurés JSON pour Loki (N8N-PLAN §7.2)
+            - { name: N8N_LOG_LEVEL,                     value: info }
+            - { name: N8N_LOG_OUTPUT,                    value: console }
+            - { name: N8N_LOG_FILE_FORMAT,               value: json   }
+
+            # --- Pont API CMR : URL + token service_automation
+            # Les workflows lisent ces variables pour appeler l'API.
+            # ⚠️ Le token est rotated toutes les 12h par le cron (Sprint D).
+            - { name: CMR_API_BASE_URL,                  value: https://api.cmr.gmd2025.org/api }
+            - name: CMR_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: n8n-cmr-api-token
+                  key: token
+
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits:   { cpu: 1,    memory: 1Gi   }
+
+          startupProbe:
+            httpGet: { path: /healthz, port: 5678 }
+            failureThreshold: 30
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /healthz, port: 5678 }
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: { path: /healthz, port: 5678 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+
+          volumeMounts:
+            - { name: n8n-data, mountPath: /home/node/.n8n }
+            - { name: tmp,      mountPath: /tmp            }
+
+      volumes:
+        - name: n8n-data
+          persistentVolumeClaim:
+            claimName: n8n-data
+        - name: tmp
+          emptyDir: { sizeLimit: 256Mi }
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: n8n
+  namespace: cmr-automation
+  labels:
+    app: n8n
+spec:
+  type: ClusterIP
+  selector:
+    app: n8n
+  ports:
+    - name: http
+      port: 80
+      targetPort: 5678
+      protocol: TCP

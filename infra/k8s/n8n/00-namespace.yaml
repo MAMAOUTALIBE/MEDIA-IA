@@ -1,0 +1,28 @@
+# =============================================================================
+# CMR · Sprint A — n8n namespace (cmr-automation)
+# =============================================================================
+# n8n vit dans un namespace dédié, distinct de `cmr`. Cette séparation est ce
+# qui rend nos NetworkPolicy efficaces : on peut filtrer par namespaceSelector
+# sans dépendre de labels de pod éphémères (cf. ADR-006 §4 + N8N-INTEGRATION-PLAN
+# §2 + §4.1).
+#
+# Le label `name: cmr-automation` est l'ancrage cible pour TOUTES les ingress-
+# from règles écrites côté `cmr` (cmr-api accepte service_automation depuis ce
+# label). Ne pas le retirer.
+#
+# Le label `tier: automation` est utilisé par Prometheus discovery (Sprint D).
+# =============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cmr-automation
+  labels:
+    name: cmr-automation
+    tier: automation
+    data-classification: pii-restricted
+  annotations:
+    # Marqueur ANSSI/RGPD — tous les workflows touchant PII doivent ajouter
+    # le label `data-classification: pii` sur leur CRD `Workflow` (Sprint C).
+    # Le DPO peut auditer :
+    #   kubectl get workflows.n8n.io -n cmr-automation -l data-classification=pii
+    cmr.gmd2025.org/dpo-contact: "dpo@gmd2025.org"

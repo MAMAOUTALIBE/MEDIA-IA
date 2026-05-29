@@ -1,0 +1,127 @@
+# =============================================================================
+# CMR · Sprint A — n8n Postgres bootstrap Job
+# =============================================================================
+# Pourquoi un Job et pas un init-container du Deployment :
+#   - Idempotent à la main (CREATE … IF NOT EXISTS partout), donc on peut le
+#     re-jouer après une rotation de mot de passe sans casser le cluster.
+#   - Le Deployment n8n démarre déjà en readOnlyRootFilesystem ; déléguer le
+#     CREATE DATABASE au pod n8n l'obligerait à élever des droits qu'il n'a
+#     pas besoin de garder en run-time.
+#   - On veut un audit séparé : `kubectl logs job/n8n-pg-init` montre exactement
+#     qui a créé le schéma et quand (ANSSI A.8.16).
+#
+# Pré-requis avant `kubectl apply -f` :
+#   - Secret `n8n-pg-bootstrap` dans namespace cmr-automation, créé manuellement
+#     par l'admin DB en récupérant le mdp `postgres` superuser depuis Vault.
+#     Ce secret est SUPPRIMÉ après succès du Job — il ne survit pas dans
+#     etcd au-delà du bootstrap (script `apply.sh` documente ça).
+#   - Secret `n8n-db-creds` (mot de passe app-level n8n_user), généré par l'admin
+#     via `openssl rand -hex 32` puis kubectl create secret.
+#
+# Le user `n8n_user` n'a accès qu'au schema `n8n_data`. Il NE PEUT PAS lire la
+# table `User`, `Content`, `AuditEvent` du schema applicatif `public` même si
+# par erreur sa NetworkPolicy était ouverte sur le 5432. C'est la couche de
+# défense en profondeur exigée par le plan N8N §2.
+# =============================================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: n8n-pg-init
+  namespace: cmr-automation
+  labels:
+    app: n8n
+    component: pg-init
+spec:
+  # Retire le pod 1h après succès — assez pour `kubectl logs`, pas assez pour
+  # devenir un point d'attaque oublié.
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: n8n
+        component: pg-init
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: psql
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          env:
+            - name: PGHOST
+              value: postgres.cmr.svc.cluster.local
+            - name: PGPORT
+              value: "5432"
+            - name: PGDATABASE
+              value: postgres
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: n8n-pg-bootstrap
+                  key: superuser
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: n8n-pg-bootstrap
+                  key: superuser_password
+            - name: N8N_DB_NAME
+              value: n8n_data
+            - name: N8N_DB_USER
+              value: n8n_user
+            - name: N8N_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: n8n-db-creds
+                  key: password
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              echo "→ n8n bootstrap on ${PGHOST}:${PGPORT}"
+
+              # CREATE DATABASE — doit être hors transaction.
+              psql -tc "SELECT 1 FROM pg_database WHERE datname='${N8N_DB_NAME}'" \
+                | grep -q 1 \
+                || psql -c "CREATE DATABASE ${N8N_DB_NAME}"
+
+              # CREATE ROLE — idempotent via DO block.
+              psql -d "${N8N_DB_NAME}" <<SQL
+              DO \$\$
+              BEGIN
+                IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='${N8N_DB_USER}') THEN
+                  CREATE ROLE ${N8N_DB_USER} LOGIN PASSWORD '${N8N_DB_PASSWORD}';
+                ELSE
+                  ALTER ROLE ${N8N_DB_USER} WITH PASSWORD '${N8N_DB_PASSWORD}';
+                END IF;
+              END
+              \$\$;
+
+              -- Schéma dédié, le user n'a accès QU'À celui-là.
+              CREATE SCHEMA IF NOT EXISTS n8n_data AUTHORIZATION ${N8N_DB_USER};
+
+              -- search_path forcé : même si quelqu'un fait \\dn dans psql avec
+              -- ce user, il ne verra que son schéma.
+              ALTER ROLE ${N8N_DB_USER} SET search_path = n8n_data;
+
+              -- Révoque l'accès au schéma applicatif (defense in depth).
+              REVOKE ALL ON SCHEMA public FROM ${N8N_DB_USER};
+              GRANT ALL ON SCHEMA n8n_data TO ${N8N_DB_USER};
+              GRANT ALL ON ALL TABLES IN SCHEMA n8n_data TO ${N8N_DB_USER};
+              GRANT ALL ON ALL SEQUENCES IN SCHEMA n8n_data TO ${N8N_DB_USER};
+              ALTER DEFAULT PRIVILEGES IN SCHEMA n8n_data
+                GRANT ALL ON TABLES TO ${N8N_DB_USER};
+              ALTER DEFAULT PRIVILEGES IN SCHEMA n8n_data
+                GRANT ALL ON SEQUENCES TO ${N8N_DB_USER};
+              SQL
+
+              echo "✓ bootstrap done"

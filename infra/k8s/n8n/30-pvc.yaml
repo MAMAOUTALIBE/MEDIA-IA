@@ -1,0 +1,30 @@
+# =============================================================================
+# CMR · Sprint A — n8n persistent storage
+# =============================================================================
+# Stocke /home/node/.n8n :
+#   - sqlite local (avant migration vers Postgres au boot — n8n l'utilise
+#     transitoirement même quand DB_TYPE=postgresdb pour la config UI)
+#   - logs si N8N_LOG_OUTPUT inclut "file"
+#   - exécutions binaires intermédiaires (mode "filesystem" pour gros payloads)
+#
+# 10Gi suffit pour Sprint A. Sprint D passera en queue mode (Redis) + workers
+# stateless ; ce PVC restera attaché au "main" pod seulement.
+#
+# Pas de ReadWriteMany : un seul pod n8n en single-process pour Sprint A.
+# La RWX coûte cher (NFS / EFS) et n'a aucun bénéfice tant qu'on ne scale pas.
+# =============================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: n8n-data
+  namespace: cmr-automation
+  labels:
+    app: n8n
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 10Gi
+  # storageClassName: <set-by-cluster-admin>
+  # On laisse vide pour utiliser la storageClass par défaut du cluster.
+  # En prod gouv, l'admin alignera sur une class chiffrée (ex: encrypted-ssd).
