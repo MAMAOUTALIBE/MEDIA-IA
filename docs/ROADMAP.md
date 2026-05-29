@@ -23,6 +23,29 @@ Cibles mesurables :
 6. **Temps réel & collaboration** — WebSockets + Yjs CRDT + presence + SSE
 7. **DevOps / observabilité** — Docker Compose + K8s + GitHub Actions + OpenTelemetry + Sentry + tests Vitest/Playwright/k6
 
+## État au 2026-05-29 (fin de session intensive)
+
+**Livré et déployé en prod :**
+- ✅ Sprint 0-9 historique (backend + frontend + n8n + déploiement Hostinger)
+- ✅ Sprint A : lock optimiste anti-race n8n + bucket throttle service_automation 500/min
+- ✅ Sprint RBAC : ownership-aware CRUD journaliste (POST/PATCH/submit/DELETE) + route guard client
+- ✅ Sprint IA-Générative : 3 endpoints Groq Llama 3.3 70B (titres, fact-check, social posts) + panneau UI éditeur
+- ✅ Sprint Search : endpoint /contents/search (mode keyword opérationnel, mode sémantique en attente)
+- ✅ Pipeline n8n auto-tagging end-to-end (2s, Llama 3.3 70B, draft tagué + summary)
+
+**À activer (config seulement) :**
+- ⏸ `GROQ_API_KEY` dans `/opt/cmr/.env` → débloque les 3 endpoints IA-Générative (actuellement 503)
+- ⏸ `OPENAI_API_KEY` dans `/opt/cmr/.env` → débloque l'embedding des nouveaux contents
+- ⏸ Image postgres → `pgvector/pgvector:pg16` (modifier docker-compose.yml ligne `image:`) → débloque le mode sémantique de la recherche. Volume `cmr-pg-data` préservé. Procédure : `docker compose pull postgres && docker compose up -d postgres` + ré-appliquer `packages/db/prisma/migrations/20260529_pgvector_search/migration.sql`.
+
+**Restant (~6 sprints, prioritaires)** :
+1. **Yjs CRDT édition collab** (~5j) — 2 journalistes co-éditent en live, presence, undo distribué
+2. **Mobile Expo journaliste** (~7-10j) — push natif, captation offline, géoloc reportage
+3. **Camunda 8 BPMN** (~5j) — designer visuel pour les chefs d'édition, état durable
+4. **Connectors OAuth diffusion** (~3-5j chacun) — YouTube/Meta/TikTok/X réels en place du mock
+5. **Camera live RTMP→HLS** (~5j) — captation direct via OBS/Streamlabs vers le CMR
+6. **Multi-tenant + facturation** (~10j) — quand le client gouv aura validé le SaaS
+
 ## 6 phases · 12 mois
 
 | Phase | Mois | Critère sortie |
