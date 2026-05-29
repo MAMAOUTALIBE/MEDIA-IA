@@ -48,6 +48,12 @@ import { AuthModule } from "./auth/auth.module";
       { name: "auth", ttl: 60_000, limit: 5 }, // 5 logins/min/IP — brute-force shield
       { name: "ai", ttl: 60_000, limit: 30 }, // 30 LLM calls/min/IP — cost shield
       { name: "media-upload", ttl: 60_000, limit: 20 }, // 20 presigns/min/IP
+      // n8n + autres service tokens : un tick cron émet 4-6 appels (Fetch,
+      // Claim, PATCH, Log success/failed). Default 100/min sature dès qu'un
+      // dev fait quelques smoke-tests en parallèle. 500/min laisse de la
+      // marge sans pour autant ouvrir une porte DDoS — le rôle est de toute
+      // façon ExactRoles-gated.
+      { name: "service_automation", ttl: 60_000, limit: 500 },
     ]),
     LoggerModule.forRoot({
       pinoHttp: {

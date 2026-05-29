@@ -11,6 +11,7 @@ import {
   Req,
 } from "@nestjs/common";
 import { ApiOperation, ApiTags } from "@nestjs/swagger";
+import { Throttle } from "@nestjs/throttler";
 import {
   IsArray,
   IsBoolean,
@@ -112,6 +113,7 @@ export class AutomationsController {
    * stays a single source of truth.
    */
   @ExactRoles("service_automation")
+  @Throttle({ service_automation: { limit: 500, ttl: 60_000 } })
   @Post("runs")
   @ApiOperation({
     summary: "Log an automation run (service_automation only — e.g. n8n)",

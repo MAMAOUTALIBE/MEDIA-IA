@@ -10,6 +10,7 @@ import {
   Req,
 } from "@nestjs/common";
 import { ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger";
+import { Throttle } from "@nestjs/throttler";
 import { IsOptional, IsString, MaxLength } from "class-validator";
 import type { Request } from "express";
 import { ExactRoles, Roles } from "../auth/roles.decorator";
@@ -157,6 +158,7 @@ export class ContentsController {
   // pour qu'aucun rôle humain ne puisse écraser tags/summary par ce chemin.
   @Patch(":id/tags")
   @ExactRoles("service_automation")
+  @Throttle({ service_automation: { limit: 500, ttl: 60_000 } })
   @ApiOperation({
     summary: "Auto-tag a draft (n8n only). Sets tags + summary, no workflow side-effect.",
   })
@@ -177,6 +179,7 @@ export class ContentsController {
   // up to 2 minutes (TTL) to PATCH /tags before the lock auto-expires.
   @Post(":id/tagging-claim")
   @ExactRoles("service_automation")
+  @Throttle({ service_automation: { limit: 500, ttl: 60_000 } })
   @ApiOperation({
     summary:
       "Atomically claim a draft for tagging (n8n only). 2-min TTL, auto-expires.",
