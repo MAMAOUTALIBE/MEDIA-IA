@@ -141,6 +141,9 @@ model Content {
   aiScore      Int? // 0-100 global IA score
   tags         String[]      @default([]) // n8n auto-tagging IA (Sprint 9)
   summary      String? // n8n résumé court IA (Sprint 9)
+  // Sprint A — n8n optimistic lock. Set by POST /contents/:id/tagging-claim
+  // (TTL 2 min), cleared by PATCH /contents/:id/tags. Cross-tick race shield.
+  taggingStartedAt DateTime?
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
   deletedAt    DateTime?
@@ -159,6 +162,7 @@ model Content {
   @@index([publishedAt])
   @@index([deletedAt])
   @@index([tags], type: Gin)
+  @@index([status, taggingStartedAt], map: "Content_tagging_lock_idx")
 }
 
 model ContentChannel {

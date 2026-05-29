@@ -33,7 +33,7 @@ const oneOf = (values: string[]): Rule => (v) =>
 const isInteger: Rule = (v) =>
   v && !/^\d+$/.test(v) ? "must be an integer" : null;
 
-const requiredInProd: Rule = (v, env) =>
+const _requiredInProd: Rule = (v, env) =>
   isProd(env) && !v ? "is required in production" : null;
 
 const schema: Schema = {

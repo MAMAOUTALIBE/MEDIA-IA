@@ -169,4 +169,36 @@ export class ContentsController {
   ) {
     return this.contentsService.applyAutoTags(id, dto);
   }
+
+  // Sprint A — atomic lock against the n8n cron race condition.
+  // Workflow contract: call POST /tagging-claim before invoking the LLM. A 409
+  // means another tick is mid-flight on this content — skip silently. A 404
+  // means the content was deleted/published — skip silently. On 200, we have
+  // up to 2 minutes (TTL) to PATCH /tags before the lock auto-expires.
+  @Post(":id/tagging-claim")
+  @ExactRoles("service_automation")
+  @ApiOperation({
+    summary:
+      "Atomically claim a draft for tagging (n8n only). 2-min TTL, auto-expires.",
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      "Claim acquired. PATCH /tags within 2 min or the lock expires.",
+  })
+  @ApiResponse({ status: 403, description: "Forbidden — service_automation required" })
+  @ApiResponse({
+    status: 404,
+    description: "Content not found / not a draft (deleted or published)",
+  })
+  @ApiResponse({
+    status: 409,
+    description: "Another run holds a fresh claim — skip this content for now.",
+  })
+  async claimForTagging(@Param("id") id: string, @Req() req: Request) {
+    return this.contentsService.claimForTagging(id, {
+      ip: req.ip,
+      userAgent: req.headers["user-agent"],
+    });
+  }
 }
