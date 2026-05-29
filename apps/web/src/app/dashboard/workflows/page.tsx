@@ -36,15 +36,42 @@ function WorkflowsContent() {
       return;
     }
     advance.mutate(
-      { id: wfId, comment: "Advance via UI" },
+      { id: wfId, comment: "Validation via UI", decision: "approve" },
       {
         onSuccess: (r: { fromStep?: string; toStep?: string }) => {
           toast.success(`« ${title} » avance ${r?.fromStep ?? "—"} → ${r?.toStep ?? "—"}`, {
-            description: "Broadcast WebSocket envoyé",
+            description: "Broadcast WebSocket envoyé · Signature SHA-256 archivée",
           });
         },
         onError: (err) => {
-          toast.error("Échec advance", {
+          toast.error("Échec validation", {
+            description: err instanceof Error ? err.message.slice(0, 100) : "?",
+          });
+        },
+      },
+    );
+  }
+
+  function handleReject(wfId: string, title: string) {
+    if (!API_ENABLED) {
+      toast.error("API désactivée — impossible de rejeter en mode mock pur");
+      return;
+    }
+    const reason = window.prompt(
+      `Raison du rejet pour « ${title} » ?\n\nLe journaliste sera notifié.`,
+      "À retravailler",
+    );
+    if (!reason) return;
+    advance.mutate(
+      { id: wfId, comment: reason, decision: "reject" },
+      {
+        onSuccess: () => {
+          toast.error(`« ${title} » rejeté`, {
+            description: `Raison : ${reason}`,
+          });
+        },
+        onError: (err) => {
+          toast.error("Échec rejet", {
             description: err instanceof Error ? err.message.slice(0, 100) : "?",
           });
         },
@@ -144,17 +171,26 @@ function WorkflowsContent() {
                 </div>
                 <button
                   type="button"
+                  onClick={() => handleReject(wf.id, wf.contentTitle)}
+                  disabled={advance.isPending || wf.currentStep >= 5}
+                  className="inline-flex items-center gap-1 rounded-lg border border-danger/30 bg-danger/10 px-2.5 py-1 text-[11px] font-semibold text-danger transition hover:bg-danger/20 disabled:opacity-40"
+                  title="Rejeter cette instance"
+                >
+                  Rejeter
+                </button>
+                <button
+                  type="button"
                   onClick={() => handleAdvance(wf.id, wf.contentTitle)}
                   disabled={advance.isPending || wf.currentStep >= 5}
                   className="inline-flex items-center gap-1 rounded-lg border border-accent-violet/30 bg-accent-violet/10 px-2.5 py-1 text-[11px] font-semibold text-accent-violet transition hover:bg-accent-violet/20 disabled:opacity-40"
-                  title="Faire avancer cette instance"
+                  title="Valider et avancer cette instance"
                 >
                   {advance.isPending && advance.variables?.id === wf.id ? (
                     <Loader2 size={11} className="animate-spin" />
                   ) : (
                     <ChevronRight size={11} />
                   )}
-                  Avancer
+                  Valider
                 </button>
               </div>
             </li>

@@ -9,6 +9,9 @@ import { ChannelIcon } from "@/components/ui/channel-icon";
 import { InitialsAvatar } from "@/components/ui/initials-avatar";
 import { StatusBadge } from "./status-badge";
 import { AIAssistantPanel } from "./ai-assistant-panel";
+import { useSubmitContent, useUpdateContent } from "@/lib/queries";
+import { ApiError } from "@/lib/api-client";
+import type { Role } from "@/types";
 import { AI_CHECKS, CHANNELS, CHANNEL_ORDER } from "@/lib/constants";
 import {
   ArrowLeft,
@@ -176,15 +179,20 @@ const toolbarItems = [
 export function ContentEditor({
   content,
   author,
+  source = "local",
 }: {
   content: Content;
   author?: User;
+  source?: "api" | "local";
+  role?: Role;
 }) {
   const router = useRouter();
   const [title, setTitle] = useState(content.title);
   const [body, setBody] = useState(content.excerpt + "\n\n" + SEED_BODY);
   const [channels, setChannels] = useState<ChannelKey[]>(content.channels);
   const [dirty, setDirty] = useState(false);
+  const updateContent = useUpdateContent();
+  const submitContent = useSubmitContent();
 
   const { results, global } = useMemo(
     () => computeAIChecks(title, body, channels),
@@ -200,21 +208,64 @@ export function ContentEditor({
     setDirty(true);
   }
 
-  function handleSave() {
+  async function handleSave() {
+    if (source === "api") {
+      try {
+        await updateContent.mutateAsync({
+          id: content.id,
+          payload: { title, body, channels },
+        });
+        setDirty(false);
+        toast.success("Brouillon enregistré", {
+          description: `${words} mots · ${channels.length} canaux · synchronisé API`,
+        });
+      } catch (err) {
+        if (err instanceof ApiError) {
+          toast.error("Sauvegarde refusée", { description: err.displayMessage });
+        } else {
+          toast.error("Sauvegarde échouée", { description: String(err) });
+        }
+      }
+      return;
+    }
     setDirty(false);
-    toast.success("Brouillon enregistré", {
+    toast.success("Brouillon enregistré (local)", {
       description: `${words} mots · ${channels.length} canaux ciblés`,
     });
   }
 
-  function handleSubmit() {
+  async function handleSubmit() {
     if (global < 75) {
       toast.error("Score IA insuffisant", {
         description: `Score actuel ${global}/100 — corrigez les avertissements avant soumission.`,
       });
       return;
     }
-    toast.success("Soumis pour validation", {
+    if (source === "api") {
+      try {
+        // Auto-save d'abord si dirty
+        if (dirty) {
+          await updateContent.mutateAsync({
+            id: content.id,
+            payload: { title, body, channels },
+          });
+        }
+        const res = await submitContent.mutateAsync(content.id);
+        toast.success("Soumis pour validation", {
+          description: `Étape : ${res.instance.currentStep} · Score IA ${global}/100`,
+        });
+        setDirty(false);
+        setTimeout(() => router.push("/dashboard/contenus"), 800);
+      } catch (err) {
+        if (err instanceof ApiError) {
+          toast.error("Soumission refusée", { description: err.displayMessage });
+        } else {
+          toast.error("Soumission échouée", { description: String(err) });
+        }
+      }
+      return;
+    }
+    toast.success("Soumis pour validation (local)", {
       description: `Envoyé au rédacteur · Score IA ${global}/100`,
     });
     setTimeout(() => router.push("/dashboard/contenus"), 800);

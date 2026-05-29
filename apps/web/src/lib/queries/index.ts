@@ -304,6 +304,21 @@ export function useSystemAlerts() {
   });
 }
 
+export function useContent(id: string | undefined) {
+  return useQuery({
+    queryKey: ["content", id] as const,
+    enabled: !!id,
+    queryFn: async () => {
+      const r = await tryApi<Content>(`contents/${id}`, strictApiWhenAuthenticated);
+      if (r) return r;
+      // Fallback to local mocks for demo without API
+      const local = contents.find((c) => c.id === id);
+      if (local) return local;
+      throw new Error(`Content ${id} not found`);
+    },
+  });
+}
+
 export function useContents() {
   return useQuery({
     queryKey: apiKey("contents"),
@@ -645,19 +660,29 @@ export function useRejectContent() {
 export function useAdvanceWorkflow() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, comment }: { id: string; comment?: string }) => {
+    mutationFn: async ({
+      id,
+      comment,
+      decision = "approve",
+    }: {
+      id: string;
+      comment?: string;
+      decision?: "approve" | "reject" | "request_changes";
+    }) => {
       const r = await postApi<{
         ok: boolean;
         instance: ApiWorkflowInstance;
         fromStep?: string;
         toStep?: string;
         decision?: string;
-      }>(`workflows/${id}/advance`, { comment });
+      }>(`workflows/${id}/advance`, { comment, decision });
       return r;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workflows", "api"] });
       queryClient.invalidateQueries({ queryKey: ["workflows", "mock"] });
+      queryClient.invalidateQueries({ queryKey: ["pending"] });
+      queryClient.invalidateQueries({ queryKey: ["contents"] });
     },
   });
 }

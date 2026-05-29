@@ -14,7 +14,10 @@ import { ChannelIcon } from "@/components/ui/channel-icon";
 import { CHANNELS } from "@/lib/constants";
 import { TEMPLATES, useDraftsStore } from "@/lib/stores/drafts-store";
 import { currentUser } from "@/lib/mocks/users";
-import { ArrowRight, FileText, Mic, Video, Plus, Sparkles, Check } from "lucide-react";
+import { useCreateContent } from "@/lib/queries";
+import { API_ENABLED } from "@/lib/api-client";
+import { ApiError } from "@/lib/api-client";
+import { ArrowRight, FileText, Loader2, Mic, Video, Plus, Sparkles, Check } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -34,14 +37,40 @@ export function NewContentDialog({
 }) {
   const router = useRouter();
   const createFromTemplate = useDraftsStore((s) => s.createFromTemplate);
+  const createContent = useCreateContent();
   const [selected, setSelected] = useState<string>("reportage");
 
-  function handleCreate() {
+  async function handleCreate() {
     const template = TEMPLATES.find((t) => t.key === selected);
     if (!template) return;
+    // API mode : POST /contents avec authorId forcé côté backend
+    if (API_ENABLED) {
+      try {
+        const created = await createContent.mutateAsync({
+          title: `${template.label} — nouveau brouillon`,
+          excerpt: template.description,
+          type: template.type,
+          channels: template.channels,
+        });
+        toast.success(`Brouillon « ${template.label} » créé`, {
+          description: "Synchronisé avec l'API — édition en temps réel.",
+        });
+        onOpenChange(false);
+        setTimeout(() => router.push(`/dashboard/contenus/${created.id}`), 200);
+        return;
+      } catch (err) {
+        if (err instanceof ApiError) {
+          toast.error("Création refusée", { description: err.displayMessage });
+        } else {
+          toast.error("Création échouée", { description: String(err) });
+        }
+        return;
+      }
+    }
+    // Fallback offline (mocks Zustand) si pas d'API
     const draft = createFromTemplate(template, currentUser.id);
-    toast.success(`Brouillon « ${template.label} » créé`, {
-      description: "Ouverture de l'éditeur — l'IA analyse en temps réel.",
+    toast.success(`Brouillon « ${template.label} » créé (local)`, {
+      description: "Mode démo — pas d'API connectée.",
     });
     onOpenChange(false);
     setTimeout(() => router.push(`/dashboard/contenus/${draft.id}`), 200);
@@ -136,10 +165,17 @@ export function NewContentDialog({
             <button
               type="button"
               onClick={handleCreate}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-accent-blue to-accent-violet px-4 py-2 text-xs font-semibold text-white shadow-glow-violet transition hover:opacity-95"
+              disabled={createContent.isPending}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-accent-blue to-accent-violet px-4 py-2 text-xs font-semibold text-white shadow-glow-violet transition hover:opacity-95 disabled:opacity-60"
             >
-              Créer ce brouillon
-              <ArrowRight size={12} />
+              {createContent.isPending ? (
+                <Loader2 size={12} className="animate-spin" />
+              ) : (
+                <>
+                  Créer ce brouillon
+                  <ArrowRight size={12} />
+                </>
+              )}
             </button>
           </div>
         </DialogFooter>
