@@ -54,6 +54,68 @@ export class ContentsController {
    * - journalist / community_manager : voit ses propres contenus + tous les
    *   contenus publiés (lecture seule pour les autres)
    */
+  /**
+   * Recherche sémantique via pgvector + OpenAI embeddings. Si l'embedding
+   * upstream est indispo, on tombe sur la recherche keyword classique.
+   * Mêmes règles d'ownership que GET / : un journaliste voit ses drafts
+   * + les publiés, un editor+ voit tout.
+   */
+  @Get("search")
+  async search(
+    @Req() req: Request,
+    @Query("q") q?: string,
+    @Query("limit") limit?: string,
+  ) {
+    if (!req.user) throw new UnauthorizedException();
+    if (!q || q.trim().length < 2) {
+      return { count: 0, items: [], mode: "empty" };
+    }
+    const lim = Math.min(Number(limit ?? 20) || 20, 50);
+    const semantic = await this.contentsService.searchSemantic(
+      q,
+      req.user.sub,
+      req.user.role,
+      { limit: lim },
+    );
+    if (semantic.length > 0) {
+      return {
+        count: semantic.length,
+        items: semantic.map((c) => ({
+          id: c.id,
+          title: c.title,
+          excerpt: c.excerpt,
+          type: c.type,
+          status: c.status,
+          authorId: c.authorId,
+          createdAt: c.createdAt,
+          tags: c.tags,
+          summary: c.summary,
+          distance: c.distance,
+        })),
+        mode: "semantic" as const,
+      };
+    }
+    // Fallback keyword
+    const baseWhere = this.contentsService.buildListFilter(req.user.sub, req.user.role);
+    const rows = await this.prisma.content.findMany({
+      where: {
+        ...baseWhere,
+        OR: [
+          { title: { contains: q, mode: "insensitive" } },
+          { excerpt: { contains: q, mode: "insensitive" } },
+          { body: { contains: q, mode: "insensitive" } },
+        ],
+      },
+      orderBy: { createdAt: "desc" },
+      take: lim,
+    });
+    return {
+      count: rows.length,
+      items: rows,
+      mode: "keyword" as const,
+    };
+  }
+
   @Get()
   async list(
     @Req() req: Request,

@@ -144,6 +144,11 @@ model Content {
   // Sprint A — n8n optimistic lock. Set by POST /contents/:id/tagging-claim
   // (TTL 2 min), cleared by PATCH /contents/:id/tags. Cross-tick race shield.
   taggingStartedAt DateTime?
+  // Sprint Search — pgvector embedding (384 dims, OpenAI text-embedding-3-small).
+  // Type vector(384) en DB ; Prisma ne supporte pas, Unsupported. Manipulé
+  // via $executeRawUnsafe dans ContentsService.refreshEmbedding/searchSemantic.
+  embedding    Unsupported("vector(384)")?
+  embeddedAt   DateTime?
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
   deletedAt    DateTime?

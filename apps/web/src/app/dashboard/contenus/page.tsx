@@ -1,5 +1,6 @@
 import { ContentsTable } from "@/components/dashboard/contenus/contents-table";
 import { NewContentButton } from "@/components/dashboard/contenus/new-content-button";
+import { SemanticSearchBar } from "@/components/dashboard/contenus/semantic-search-bar";
 
 export const metadata = { title: "Contenus — CMR" };
 
@@ -15,6 +16,7 @@ export default function ContenusPage() {
         </div>
         <NewContentButton />
       </div>
+      <SemanticSearchBar />
       <ContentsTable />
     </div>
   );

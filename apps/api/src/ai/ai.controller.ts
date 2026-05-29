@@ -1,15 +1,60 @@
-import { Body, Controller, Get, Post, Res } from "@nestjs/common";
-import { ApiTags } from "@nestjs/swagger";
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  NotFoundException,
+  Post,
+  Res,
+} from "@nestjs/common";
+import { ApiOperation, ApiTags } from "@nestjs/swagger";
 import { Throttle } from "@nestjs/throttler";
-import { IsOptional, IsString, MaxLength } from "class-validator";
+import {
+  IsArray,
+  IsIn,
+  IsOptional,
+  IsString,
+  MaxLength,
+  MinLength,
+  ArrayMinSize,
+  ArrayMaxSize,
+} from "class-validator";
 import type { Response } from "express";
+import { Roles } from "../auth/roles.decorator";
 import { aiCheckResults, aiGlobalScore, aiRecommendations } from "../mocks/data-extra";
+import { PrismaService } from "../prisma/prisma.service";
 import { AiService } from "./ai.service";
 import { ClaudeService } from "./claude.service";
+import { GroqService } from "./groq.service";
 
 class AskDto {
   @IsOptional() @IsString() @MaxLength(4000)
   question?: string;
+}
+
+class GenerateTitlesDto {
+  @IsOptional() @IsString() contentId?: string;
+  @IsOptional() @IsString() @MinLength(50) @MaxLength(50_000) body?: string;
+  @IsOptional() @IsString() @MaxLength(200) currentTitle?: string;
+}
+
+class FactCheckDto {
+  @IsOptional() @IsString() contentId?: string;
+  @IsOptional() @IsString() @MinLength(50) @MaxLength(50_000) body?: string;
+}
+
+const SOCIAL_PLATFORMS = ["twitter", "instagram", "tiktok", "facebook", "telegram"] as const;
+type SocialPlatform = (typeof SOCIAL_PLATFORMS)[number];
+
+class SocialPostsDto {
+  @IsOptional() @IsString() contentId?: string;
+  @IsOptional() @IsString() @MaxLength(200) title?: string;
+  @IsOptional() @IsString() @MinLength(50) @MaxLength(50_000) body?: string;
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(5)
+  @IsIn(SOCIAL_PLATFORMS as unknown as string[], { each: true })
+  platforms!: SocialPlatform[];
 }
 
 // Cost shield: LLM endpoints are expensive — cap per-IP RPM lower than the
@@ -21,7 +66,69 @@ export class AiController {
   constructor(
     private readonly ai: AiService,
     private readonly claude: ClaudeService,
+    private readonly groq: GroqService,
+    private readonly prisma: PrismaService,
   ) {}
+
+  // ---------------------------------------------------------------------------
+  // Sprint IA-Générative — endpoints assistant éditorial (Groq Llama 3.3 70B)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Soit on passe `body` directement (preview en édition), soit on passe
+   * `contentId` et on rapatrie le draft depuis la DB.
+   */
+  private async resolveBody(
+    contentId: string | undefined,
+    body: string | undefined,
+  ): Promise<{ body: string; title?: string }> {
+    if (body && body.trim().length >= 50) return { body };
+    if (!contentId) {
+      throw new BadRequestException("Fournir `contentId` OU `body` (≥ 50 chars)");
+    }
+    const c = await this.prisma.content.findUnique({
+      where: { id: contentId },
+      select: { id: true, title: true, body: true, deletedAt: true },
+    });
+    if (!c || c.deletedAt) throw new NotFoundException(`Content ${contentId} not found`);
+    if (!c.body || c.body.length < 50) {
+      throw new BadRequestException(`Body trop court pour analyser (≥ 50 chars requis)`);
+    }
+    return { body: c.body, title: c.title };
+  }
+
+  @Roles("journalist")
+  @Post("generate-titles")
+  @ApiOperation({ summary: "Génère 5 titres alternatifs FR via Groq Llama 3.3 70B" })
+  async generateTitles(@Body() dto: GenerateTitlesDto) {
+    const { body, title } = await this.resolveBody(dto.contentId, dto.body);
+    const titles = await this.groq.generateTitles(body, dto.currentTitle ?? title);
+    return { titles, engine: "groq:llama-3.3-70b-versatile" };
+  }
+
+  @Roles("journalist")
+  @Post("fact-check")
+  @ApiOperation({
+    summary:
+      "Fact-check léger d'un brouillon : flags + sources à vérifier. NE remplace PAS un fact-checking humain.",
+  })
+  async factCheck(@Body() dto: FactCheckDto) {
+    const { body } = await this.resolveBody(dto.contentId, dto.body);
+    const result = await this.groq.factCheck(body);
+    return { ...result, engine: "groq:llama-3.3-70b-versatile" };
+  }
+
+  @Roles("journalist")
+  @Post("social-posts")
+  @ApiOperation({
+    summary: "Génère des posts sociaux adaptés par plateforme (twitter, instagram, tiktok, facebook, telegram)",
+  })
+  async socialPosts(@Body() dto: SocialPostsDto) {
+    const { body, title } = await this.resolveBody(dto.contentId, dto.body);
+    const finalTitle = dto.title ?? title ?? "";
+    const posts = await this.groq.socialPosts(finalTitle, body, dto.platforms);
+    return { posts, engine: "groq:llama-3.3-70b-versatile" };
+  }
 
   @Get("checks")
   checks() {

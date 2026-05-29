@@ -8,6 +8,7 @@ import {
 import { Prisma } from "@prisma/client";
 import type { Content, ContentType, ChannelKey } from "@prisma/client";
 import { AuditService } from "../audit/audit.service";
+import { EmbeddingService } from "../ai/embedding.service";
 import { PrismaService } from "../prisma/prisma.service";
 
 const TAGGING_LOCK_TTL_MINUTES = 2;
@@ -32,7 +33,60 @@ export class ContentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly embedding: EmbeddingService,
   ) {}
+
+  // ===========================================================================
+  // Sprint Search — recherche sémantique via pgvector
+  // ===========================================================================
+
+  /**
+   * Calcule l'embedding de (title + body) et le persiste via SQL brut
+   * (Prisma ne supporte pas le type `vector` nativement). Silencieux si
+   * EmbeddingService est indispo — le content reste cherchable en keyword.
+   */
+  private async refreshEmbedding(id: string, title: string, body: string | null) {
+    const text = `${title}\n\n${body ?? ""}`;
+    const vec = await this.embedding.embed(text);
+    if (!vec) return;
+    const serialized = this.embedding.serialize(vec);
+    await this.prisma.$executeRawUnsafe(
+      `UPDATE "Content" SET "embedding" = $1::vector, "embeddedAt" = NOW() WHERE "id" = $2`,
+      serialized,
+      id,
+    );
+  }
+
+  /**
+   * Recherche sémantique : embed la query, ORDER BY cosine distance (<=>).
+   * Si EmbeddingService est indispo (OPENAI_API_KEY manquante), retourne
+   * vide — l'appelant peut tomber sur la recherche keyword classique.
+   */
+  async searchSemantic(
+    query: string,
+    actorId: string,
+    actorRole: string,
+    opts: { limit?: number } = {},
+  ): Promise<Array<Content & { distance: number }>> {
+    if (!this.embedding.isAvailable()) return [];
+    const vec = await this.embedding.embed(query);
+    if (!vec) return [];
+    const limit = Math.min(opts.limit ?? 20, 50);
+    const ownership = isEditorOrAbove(actorRole)
+      ? Prisma.sql`"deletedAt" IS NULL`
+      : Prisma.sql`"deletedAt" IS NULL AND ("authorId" = ${actorId} OR "status" = 'published')`;
+    const serialized = this.embedding.serialize(vec);
+    const rows = await this.prisma.$queryRaw<Array<Content & { distance: number }>>(
+      Prisma.sql`
+        SELECT *, ("embedding" <=> ${serialized}::vector) AS distance
+        FROM "Content"
+        WHERE ${ownership} AND "embedding" IS NOT NULL
+        ORDER BY "embedding" <=> ${serialized}::vector
+        LIMIT ${limit}
+      `,
+    );
+    return rows;
+  }
 
   /**
    * Sprint A — Atomically claim a draft for tagging. Only one caller wins the
@@ -163,6 +217,11 @@ export class ContentsService {
       userAgent: opts.userAgent ?? null,
       metadata: { title: created.title, type: created.type },
     });
+    // Fire-and-forget : embed pour la recherche sémantique. Si OPENAI_API_KEY
+    // manque, le content reste cherchable en keyword.
+    void this.refreshEmbedding(created.id, created.title, created.body).catch(
+      (err) => this.logger.warn(`refreshEmbedding failed for ${created.id}: ${String(err)}`),
+    );
     return created;
   }
 
@@ -196,7 +255,7 @@ export class ContentsService {
       );
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const updated = await this.prisma.$transaction(async (tx) => {
       if (dto.channels !== undefined) {
         await tx.contentChannel.deleteMany({ where: { contentId: id } });
       }
@@ -213,6 +272,13 @@ export class ContentsService {
         include: { channels: { select: { channel: true } } },
       });
     });
+    // Re-embed seulement si title ou body a changé (économie d'API calls).
+    if (dto.title !== undefined || dto.body !== undefined) {
+      void this.refreshEmbedding(updated.id, updated.title, updated.body).catch(
+        (err) => this.logger.warn(`refreshEmbedding failed for ${updated.id}: ${String(err)}`),
+      );
+    }
+    return updated;
   }
 
   /**

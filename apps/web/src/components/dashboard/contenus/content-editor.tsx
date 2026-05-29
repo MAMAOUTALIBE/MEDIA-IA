@@ -8,6 +8,7 @@ import { GlassCard } from "@/components/ui/glass-card";
 import { ChannelIcon } from "@/components/ui/channel-icon";
 import { InitialsAvatar } from "@/components/ui/initials-avatar";
 import { StatusBadge } from "./status-badge";
+import { AIAssistantPanel } from "./ai-assistant-panel";
 import { AI_CHECKS, CHANNELS, CHANNEL_ORDER } from "@/lib/constants";
 import {
   ArrowLeft,
@@ -434,6 +435,17 @@ export function ContentEditor({
               )}
             </ul>
           </GlassCard>
+
+          {/* Sprint IA-Générative — assistant Llama 3.3 70B (Groq) */}
+          <AIAssistantPanel
+            contentId={content.id}
+            title={title}
+            body={body}
+            onPickTitle={(t) => {
+              setTitle(t);
+              setDirty(true);
+            }}
+          />
 
           {author && (
             <GlassCard className="p-5">

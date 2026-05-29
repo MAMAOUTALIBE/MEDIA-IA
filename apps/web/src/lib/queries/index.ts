@@ -392,6 +392,89 @@ export function useDeleteContent() {
   });
 }
 
+// =============================================================================
+// Sprint IA-Générative — assistant éditorial (Groq Llama 3.3 70B)
+// =============================================================================
+
+export function useGenerateTitles() {
+  return useMutation({
+    mutationFn: async (payload: { contentId?: string; body?: string; currentTitle?: string }) => {
+      return postApi<{ titles: string[]; engine: string }>(
+        "ai/generate-titles",
+        payload,
+        "POST",
+      );
+    },
+  });
+}
+
+type FactCheckResult = {
+  overallRisk: "low" | "medium" | "high";
+  flags: Array<{
+    claim: string;
+    risk: "low" | "medium" | "high";
+    reason: string;
+    verify: string;
+  }>;
+  suggestedSources: string[];
+  engine: string;
+};
+
+export function useFactCheck() {
+  return useMutation({
+    mutationFn: async (payload: { contentId?: string; body?: string }) => {
+      return postApi<FactCheckResult>("ai/fact-check", payload, "POST");
+    },
+  });
+}
+
+export function useSocialPosts() {
+  return useMutation({
+    mutationFn: async (payload: {
+      contentId?: string;
+      title?: string;
+      body?: string;
+      platforms: Array<"twitter" | "instagram" | "tiktok" | "facebook" | "telegram">;
+    }) => {
+      return postApi<{ posts: Record<string, string>; engine: string }>(
+        "ai/social-posts",
+        payload,
+        "POST",
+      );
+    },
+  });
+}
+
+// =============================================================================
+// Sprint Search — recherche sémantique pgvector + fallback keyword
+// =============================================================================
+
+type SearchResult = {
+  count: number;
+  items: Array<
+    Content & {
+      distance?: number;
+      summary?: string | null;
+      tags?: string[];
+    }
+  >;
+  mode: "semantic" | "keyword" | "empty";
+};
+
+export function useSearchContents(q: string, opts: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: ["contents-search", q] as const,
+    enabled: opts.enabled !== false && q.trim().length >= 2,
+    queryFn: async () => {
+      const r = await tryApi<SearchResult>(
+        `contents/search?q=${encodeURIComponent(q)}&limit=20`,
+        strictApiWhenAuthenticated,
+      );
+      return r ?? { count: 0, items: [], mode: "empty" as const };
+    },
+  });
+}
+
 export function useWorkflows() {
   return useQuery({
     queryKey: apiKey("workflows"),

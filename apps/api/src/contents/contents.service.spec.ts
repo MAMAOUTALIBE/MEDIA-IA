@@ -3,6 +3,7 @@ import { ConflictException, ForbiddenException, NotFoundException } from "@nestj
 import { ContentsService } from "./contents.service";
 import { PrismaService } from "../prisma/prisma.service";
 import type { AuditService } from "../audit/audit.service";
+import type { EmbeddingService } from "../ai/embedding.service";
 
 const TEST_DB_URL = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL;
 
@@ -18,7 +19,16 @@ describe.skipIf(!TEST_DB_URL)("ContentsService.claimForTagging (integration)", (
     prisma = new PrismaService({ datasources: { db: { url: TEST_DB_URL } } } as never);
     await prisma.$connect();
     auditMock = { log: vi.fn().mockResolvedValue(undefined) };
-    svc = new ContentsService(prisma, auditMock as unknown as AuditService);
+    const embeddingMock = {
+      isAvailable: vi.fn().mockReturnValue(false),
+      embed: vi.fn().mockResolvedValue(null),
+      serialize: vi.fn().mockReturnValue("[]"),
+    };
+    svc = new ContentsService(
+      prisma,
+      auditMock as unknown as AuditService,
+      embeddingMock as unknown as EmbeddingService,
+    );
 
     // Seed a deterministic user once. Other tests in the suite use other ids.
     await prisma.user.upsert({
