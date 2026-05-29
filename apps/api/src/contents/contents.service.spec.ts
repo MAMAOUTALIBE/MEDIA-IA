@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeAll, afterAll, beforeEach, vi } from "vitest";
-import { ConflictException, NotFoundException } from "@nestjs/common";
+import { ConflictException, ForbiddenException, NotFoundException } from "@nestjs/common";
 import { ContentsService } from "./contents.service";
 import { PrismaService } from "../prisma/prisma.service";
 import type { AuditService } from "../audit/audit.service";
@@ -148,6 +148,130 @@ describe.skipIf(!TEST_DB_URL)("ContentsService.claimForTagging (integration)", (
     expect(after?.taggingStartedAt).toBeNull();
     expect(after?.tags).toEqual(["politique", "budget"]);
     expect(after?.summary).toBe("A short summary at least ten chars.");
+  });
+
+  // ===========================================================================
+  // Sprint RBAC — ownership-aware CRUD
+  // ===========================================================================
+
+  it("createDraft forces authorId from JWT (no spoofing possible)", async () => {
+    const c = await svc.createDraft(USER_ID, {
+      title: "Test ownership",
+      body: "body here",
+      type: "article",
+      channels: ["web", "mobile"],
+    });
+    expect(c.authorId).toBe(USER_ID);
+    expect(c.status).toBe("draft");
+    expect(c.channels.map((ch) => ch.channel).sort()).toEqual(["mobile", "web"]);
+    // cleanup
+    await prisma.content.delete({ where: { id: c.id } });
+  });
+
+  it("updateDraft refuses when actor is not author and not editor+", async () => {
+    const c = await svc.createDraft(USER_ID, {
+      title: "Owned by user",
+      body: "body",
+      type: "article",
+    });
+    await expect(
+      svc.updateDraft(c.id, "other-journalist-id", "journalist", { title: "Hijack" }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    await prisma.content.delete({ where: { id: c.id } });
+  });
+
+  it("updateDraft allows the author to edit their own draft", async () => {
+    const c = await svc.createDraft(USER_ID, {
+      title: "Mine",
+      body: "v1",
+      type: "article",
+    });
+    const updated = await svc.updateDraft(c.id, USER_ID, "journalist", {
+      title: "Mine — v2",
+      body: "v2 body",
+    });
+    expect(updated.title).toBe("Mine — v2");
+    expect(updated.body).toBe("v2 body");
+    await prisma.content.delete({ where: { id: c.id } });
+  });
+
+  it("updateDraft allows editor+ to edit anyone's draft", async () => {
+    const c = await svc.createDraft(USER_ID, {
+      title: "Original",
+      body: "body",
+      type: "article",
+    });
+    const updated = await svc.updateDraft(c.id, "some-editor-id", "editor", {
+      title: "Edited by editor",
+    });
+    expect(updated.title).toBe("Edited by editor");
+    await prisma.content.delete({ where: { id: c.id } });
+  });
+
+  it("updateDraft refuses when status is not draft (use workflow API)", async () => {
+    const c = await svc.createDraft(USER_ID, {
+      title: "Soon to be published",
+      type: "article",
+    });
+    await prisma.content.update({
+      where: { id: c.id },
+      data: { status: "published" },
+    });
+    await expect(
+      svc.updateDraft(c.id, USER_ID, "journalist", { title: "Late edit" }),
+    ).rejects.toBeInstanceOf(ConflictException);
+    await prisma.content.delete({ where: { id: c.id } });
+  });
+
+  it("submitForValidation creates a WorkflowInstance and bumps status to pending_editor", async () => {
+    const c = await svc.createDraft(USER_ID, {
+      title: "Ready to submit",
+      body: "body",
+      type: "article",
+    });
+    const result = await svc.submitForValidation(c.id, USER_ID, "journalist");
+    expect(result.instance.currentStep).toBe("submitted");
+    expect(result.content.status).toBe("pending_editor");
+    // cleanup workflow then content
+    await prisma.workflowInstance.delete({ where: { id: result.instance.id } });
+    await prisma.content.delete({ where: { id: c.id } });
+  });
+
+  it("submitForValidation refuses if non-author non-editor tries to submit", async () => {
+    const c = await svc.createDraft(USER_ID, {
+      title: "Owned",
+      type: "article",
+    });
+    await expect(
+      svc.submitForValidation(c.id, "other-journo", "journalist"),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    await prisma.content.delete({ where: { id: c.id } });
+  });
+
+  it("softDelete refuses for journalist, accepts for editor+", async () => {
+    const c = await svc.createDraft(USER_ID, {
+      title: "Doomed",
+      type: "article",
+    });
+    await expect(
+      svc.softDelete(c.id, USER_ID, "journalist"),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    const deleted = await svc.softDelete(c.id, "some-editor", "editor");
+    expect(deleted.deletedAt).toBeInstanceOf(Date);
+    await prisma.content.delete({ where: { id: c.id } });
+  });
+
+  it("buildListFilter returns ownership-aware where for journalist, open for editor+", () => {
+    const j = svc.buildListFilter(USER_ID, "journalist");
+    expect(j).toMatchObject({
+      deletedAt: null,
+      OR: expect.arrayContaining([
+        { authorId: USER_ID },
+        { status: "published" },
+      ]),
+    });
+    const e = svc.buildListFilter(USER_ID, "editor");
+    expect(e).toEqual({ deletedAt: null });
   });
 
   it("releases the lock when applyAutoTags hits idempotency guard (already tagged)", async () => {

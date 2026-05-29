@@ -1,13 +1,16 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
   NotFoundException,
   Param,
   Patch,
   Post,
   Query,
   Req,
+  UnauthorizedException,
 } from "@nestjs/common";
 import { ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger";
 import { Throttle } from "@nestjs/throttler";
@@ -18,6 +21,8 @@ import { NotificationsGateway } from "../notifications/notifications.gateway";
 import { PrismaService } from "../prisma/prisma.service";
 import { WorkflowsService } from "../workflows/workflows.service";
 import { ContentsService } from "./contents.service";
+import { CreateContentDto } from "./dto/create-content.dto";
+import { UpdateContentDto } from "./dto/update-content.dto";
 import { UpdateContentTagsDto } from "./dto/update-content-tags.dto";
 
 class ValidateDto {
@@ -39,15 +44,28 @@ export class ContentsController {
     private readonly contentsService: ContentsService,
   ) {}
 
+  // ---------------------------------------------------------------------------
+  // Read endpoints
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Liste filtrée. Comportement RBAC :
+   * - editor+ : voit tout (sauf soft-deleted)
+   * - journalist / community_manager : voit ses propres contenus + tous les
+   *   contenus publiés (lecture seule pour les autres)
+   */
   @Get()
   async list(
+    @Req() req: Request,
     @Query("status") status?: string,
     @Query("type") type?: string,
     @Query("q") q?: string,
   ) {
+    if (!req.user) throw new UnauthorizedException();
+    const baseWhere = this.contentsService.buildListFilter(req.user.sub, req.user.role);
     const rows = await this.prisma.content.findMany({
       where: {
-        deletedAt: null,
+        ...baseWhere,
         ...(status ? { status: status as never } : {}),
         ...(type ? { type: type as never } : {}),
         ...(q
@@ -79,7 +97,8 @@ export class ContentsController {
   }
 
   @Get(":id")
-  async one(@Param("id") id: string) {
+  async one(@Param("id") id: string, @Req() req: Request) {
+    if (!req.user) throw new UnauthorizedException();
     const c = await this.prisma.content.findFirst({
       where: { id, deletedAt: null },
       include: {
@@ -97,8 +116,102 @@ export class ContentsController {
       },
     });
     if (!c) throw new NotFoundException(`Content ${id} not found`);
+    // Enforce ownership-aware read : un journaliste ne peut pas voir le draft
+    // d'un autre journaliste. Les contenus publiés restent visibles à tous.
+    const rank = ranks[req.user.role] ?? 0;
+    const isEditorOrAbove = rank >= ranks.editor;
+    if (!isEditorOrAbove && c.authorId !== req.user.sub && c.status !== "published") {
+      throw new NotFoundException(`Content ${id} not found`);
+    }
     return { ...c, channels: c.channels.map((ch) => ch.channel) };
   }
+
+  // ---------------------------------------------------------------------------
+  // Sprint RBAC — Write endpoints pour journalistes (ownership-aware)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Création d'un brouillon par n'importe quel rôle ≥ journalist. L'auteur
+   * est forcé au sub du JWT (pas de spoofing possible).
+   */
+  @Roles("journalist")
+  @Post()
+  @ApiOperation({ summary: "Crée un brouillon dont l'auteur est le user courant" })
+  @ApiResponse({ status: 201, description: "Brouillon créé" })
+  async create(@Body() dto: CreateContentDto, @Req() req: Request) {
+    if (!req.user) throw new UnauthorizedException();
+    return this.contentsService.createDraft(req.user.sub, dto, {
+      ip: req.ip,
+      userAgent: req.headers["user-agent"],
+    });
+  }
+
+  /**
+   * Édition. Le journaliste peut modifier UNIQUEMENT son propre brouillon.
+   * Un éditeur+ peut modifier n'importe quel brouillon (pour corriger).
+   * Refusé une fois le statut > draft.
+   */
+  @Roles("journalist")
+  @Patch(":id")
+  @ApiOperation({ summary: "Met à jour un brouillon (auteur ou éditeur+) ; status doit être draft" })
+  @ApiResponse({ status: 200, description: "Brouillon mis à jour" })
+  @ApiResponse({ status: 403, description: "Pas auteur et pas éditeur+" })
+  @ApiResponse({ status: 409, description: "Statut ≠ draft, soumettre via /submit" })
+  async update(
+    @Param("id") id: string,
+    @Body() dto: UpdateContentDto,
+    @Req() req: Request,
+  ) {
+    if (!req.user) throw new UnauthorizedException();
+    return this.contentsService.updateDraft(id, req.user.sub, req.user.role, dto);
+  }
+
+  /**
+   * Soumission à la chaîne de validation. Le content passe de `draft` à
+   * `pending_editor` et une `WorkflowInstance` est créée.
+   */
+  @Roles("journalist")
+  @Post(":id/submit")
+  @HttpCode(200)
+  @ApiOperation({ summary: "Soumet un brouillon à la chaîne de validation 4 niveaux" })
+  @ApiResponse({ status: 200, description: "Soumis. WorkflowInstance créée." })
+  @ApiResponse({ status: 409, description: "Pas un draft OU déjà soumis" })
+  async submit(@Param("id") id: string, @Req() req: Request) {
+    if (!req.user) throw new UnauthorizedException();
+    const result = await this.contentsService.submitForValidation(
+      id,
+      req.user.sub,
+      req.user.role,
+      { ip: req.ip, userAgent: req.headers["user-agent"] },
+    );
+    this.notifications.broadcast("content.submitted", {
+      contentId: id,
+      workflowInstanceId: result.instance.id,
+      at: new Date().toISOString(),
+    });
+    return result;
+  }
+
+  /**
+   * Soft-delete. Réservé aux éditeurs+. Un journaliste ne peut JAMAIS
+   * supprimer un contenu, même son propre draft — pour conserver l'audit.
+   */
+  @Roles("editor")
+  @Delete(":id")
+  @HttpCode(204)
+  @ApiOperation({ summary: "Soft-delete (deletedAt). Réservé editor+, audit-loggé." })
+  @ApiResponse({ status: 204, description: "Supprimé" })
+  async remove(@Param("id") id: string, @Req() req: Request) {
+    if (!req.user) throw new UnauthorizedException();
+    await this.contentsService.softDelete(id, req.user.sub, req.user.role, {
+      ip: req.ip,
+      userAgent: req.headers["user-agent"],
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Existing : validate / reject (workflow step transitions)
+  // ---------------------------------------------------------------------------
 
   @Roles("editor")
   @Post(":id/validate")
@@ -154,8 +267,10 @@ export class ContentsController {
     return result;
   }
 
-  // Sprint 9 — Auto-tagging IA via n8n. Restreint à service_automation
-  // pour qu'aucun rôle humain ne puisse écraser tags/summary par ce chemin.
+  // ---------------------------------------------------------------------------
+  // Sprint 9 / Sprint A — Auto-tagging IA via n8n (service_automation only)
+  // ---------------------------------------------------------------------------
+
   @Patch(":id/tags")
   @ExactRoles("service_automation")
   @Throttle({ service_automation: { limit: 500, ttl: 60_000 } })
@@ -172,11 +287,6 @@ export class ContentsController {
     return this.contentsService.applyAutoTags(id, dto);
   }
 
-  // Sprint A — atomic lock against the n8n cron race condition.
-  // Workflow contract: call POST /tagging-claim before invoking the LLM. A 409
-  // means another tick is mid-flight on this content — skip silently. A 404
-  // means the content was deleted/published — skip silently. On 200, we have
-  // up to 2 minutes (TTL) to PATCH /tags before the lock auto-expires.
   @Post(":id/tagging-claim")
   @ExactRoles("service_automation")
   @Throttle({ service_automation: { limit: 500, ttl: 60_000 } })
@@ -205,3 +315,13 @@ export class ContentsController {
     });
   }
 }
+
+// Hiérarchie locale pour la décision read-access dans `one()`.
+const ranks: Record<string, number> = {
+  journalist: 1,
+  community_manager: 1,
+  editor: 2,
+  chief: 3,
+  direction: 4,
+  admin: 5,
+};

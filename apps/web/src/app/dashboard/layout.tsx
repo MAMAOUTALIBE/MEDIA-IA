@@ -3,6 +3,7 @@ import { Sidebar } from "@/components/dashboard/shell/sidebar";
 import { Topbar } from "@/components/dashboard/shell/topbar";
 import { CommandPalette } from "@/components/dashboard/shell/command-palette";
 import { AIAssistant } from "@/components/dashboard/shell/ai-assistant";
+import { DashboardRouteGuard } from "@/components/dashboard/shell/route-guard";
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   return (
@@ -16,7 +17,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           aria-label="Contenu principal du dashboard"
           className="flex-1 px-4 py-6 lg:px-8 lg:py-8 focus:outline-none"
         >
-          {children}
+          <DashboardRouteGuard>{children}</DashboardRouteGuard>
         </main>
       </div>
       <CommandPalette />

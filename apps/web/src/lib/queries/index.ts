@@ -319,6 +319,79 @@ export function useContents() {
   });
 }
 
+// =============================================================================
+// Sprint RBAC — Mutations CRUD pour journalistes (ownership-aware)
+// =============================================================================
+
+type CreateContentPayload = {
+  title: string;
+  body?: string;
+  excerpt?: string;
+  type: Content["type"];
+  channels?: ChannelKey[];
+};
+
+type UpdateContentPayload = {
+  title?: string;
+  body?: string;
+  excerpt?: string;
+  channels?: ChannelKey[];
+};
+
+export function useCreateContent() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: CreateContentPayload) => {
+      return postApi<Content>("contents", payload, "POST");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["contents"] });
+    },
+  });
+}
+
+export function useUpdateContent() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, payload }: { id: string; payload: UpdateContentPayload }) => {
+      return postApi<Content>(`contents/${id}`, payload, "PATCH");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["contents"] });
+    },
+  });
+}
+
+export function useSubmitContent() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      return postApi<{ instance: { id: string; currentStep: string }; content: Content }>(
+        `contents/${id}/submit`,
+        undefined,
+        "POST",
+      );
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["contents"] });
+      queryClient.invalidateQueries({ queryKey: ["pending"] });
+    },
+  });
+}
+
+export function useDeleteContent() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await postApi<void>(`contents/${id}`, undefined, "DELETE");
+      return { id };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["contents"] });
+    },
+  });
+}
+
 export function useWorkflows() {
   return useQuery({
     queryKey: apiKey("workflows"),
